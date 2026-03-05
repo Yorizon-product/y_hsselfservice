@@ -34,11 +34,11 @@ const emptyCompany = (): CompanyFields => ({
   contact: emptyContact(),
 });
 
-const APP_VERSION = "0.2.0";
+const APP_VERSION = "0.3.0";
 
 export default function Home() {
-  const [token, setToken] = useState("");
-  const [tokenSaved, setTokenSaved] = useState(false);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [loggedIn, setLoggedIn] = useState(false);
   const [portalId, setPortalId] = useState<string | null>(null);
 
   const [partner, setPartner] = useState<CompanyFields>(emptyCompany());
@@ -50,73 +50,72 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<CreatedEntity[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [sessionExpired, setSessionExpired] = useState(false);
 
-  // Fetch association labels when token is saved
+  // Check auth status on load
   useEffect(() => {
-    if (!tokenSaved) return;
-    console.log("[ui] Token saved, fetching labels...");
+    fetch("/api/auth/me")
+      .then((r) => r.json())
+      .then((data) => {
+        setLoggedIn(data.loggedIn);
+        if (data.portalId) setPortalId(data.portalId);
+      })
+      .catch(() => setLoggedIn(false))
+      .finally(() => setAuthLoading(false));
+  }, []);
+
+  // Fetch association labels when logged in
+  useEffect(() => {
+    if (!loggedIn) return;
     setLabelsLoading(true);
     setError(null);
-    fetch("/api/labels", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token }),
-    })
+    fetch("/api/labels")
       .then(async (r) => {
-        console.log("[ui] /api/labels response status:", r.status);
+        if (r.status === 401) {
+          setSessionExpired(true);
+          setLoggedIn(false);
+          return;
+        }
         const data = await r.json();
-        console.log("[ui] /api/labels response data:", JSON.stringify(data, null, 2));
         if (!r.ok) {
           setError(data.error || `Labels fetch failed: ${r.status}`);
           return;
         }
         if (data.labels) {
           setLabels(data.labels);
-          console.log("[ui] Labels loaded:", data.labels.length, "labels");
           if (data.labels.length > 0) setAssociationLabel(data.labels[0].typeId);
         }
-        if (data.portalId) {
-          setPortalId(data.portalId);
-          console.log("[ui] Portal ID:", data.portalId);
-        }
+        if (data.portalId) setPortalId(data.portalId);
       })
-      .catch((err) => {
-        console.error("[ui] /api/labels fetch error:", err);
-        setError(err.message || "Failed to fetch labels");
-      })
+      .catch((err) => setError(err.message || "Failed to fetch labels"))
       .finally(() => setLabelsLoading(false));
-  }, [tokenSaved, token]);
+  }, [loggedIn]);
 
   const handleSubmit = async () => {
     setLoading(true);
     setError(null);
     setResults(null);
 
-    const payload = {
-      token,
-      partner,
-      customer,
-      associationLabelId: associationLabel,
-      portalId,
-    };
-    console.log("[ui] Submitting /api/create with:", JSON.stringify({
-      ...payload,
-      token: `${token.slice(0, 12)}...(len:${token.length})`,
-    }, null, 2));
-
     try {
       const res = await fetch("/api/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          partner,
+          customer,
+          associationLabelId: associationLabel,
+          portalId,
+        }),
       });
-      console.log("[ui] /api/create response status:", res.status);
+      if (res.status === 401) {
+        setSessionExpired(true);
+        setLoggedIn(false);
+        return;
+      }
       const data = await res.json();
-      console.log("[ui] /api/create response data:", JSON.stringify(data, null, 2));
       if (!res.ok) throw new Error(data.error || "Something went wrong");
       setResults(data.created);
     } catch (e: any) {
-      console.error("[ui] /api/create error:", e.message);
       setError(e.message);
     } finally {
       setLoading(false);
@@ -139,6 +138,14 @@ export default function Home() {
     customer.contact.email &&
     associationLabel !== null;
 
+  if (authLoading) {
+    return (
+      <main className="min-h-screen flex items-center justify-center">
+        <p className="text-sm text-[var(--text-muted)]">Loading...</p>
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen flex items-start justify-center px-4 py-12 md:py-20">
       <div className="w-full max-w-2xl">
@@ -155,59 +162,59 @@ export default function Home() {
           </h1>
           <p className="text-[var(--text-muted)] mt-2 text-sm leading-relaxed">
             Creates a partner company + contact, a customer company + contact,
-            and links them with an association label. Your API token is never
-            stored — it&apos;s only used for the request.
+            and links them with an association label.
           </p>
         </div>
 
-        {/* Token section */}
-        {!tokenSaved ? (
+        {/* Session expired message */}
+        {sessionExpired && (
+          <div className="animate-in mb-6 p-4 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
+            <p className="text-sm text-yellow-400 mb-2">
+              Your session has expired. Please reconnect to continue.
+            </p>
+            <a
+              href="/api/auth/install"
+              className="inline-block px-4 py-2 rounded-lg text-sm font-medium
+                bg-[var(--accent)] text-white hover:brightness-110 transition-all"
+            >
+              Reconnect to HubSpot
+            </a>
+          </div>
+        )}
+
+        {/* Not logged in — show connect button */}
+        {!loggedIn && !sessionExpired ? (
           <div className="animate-in animate-in-delay-1">
-            <Section title="API Access">
-              <Input
-                label="HubSpot Private App Token"
-                value={token}
-                onChange={setToken}
-                type="password"
-                placeholder="pat-na1-..."
-                mono
-              />
-              <p className="text-xs text-[var(--text-muted)] mt-1">
-                Needs scopes: crm.objects.companies.write,
-                crm.objects.contacts.write, crm.schemas.companies.read
+            <Section title="Connect your HubSpot account">
+              <p className="text-sm text-[var(--text-muted)] mb-4">
+                Sign in with HubSpot to get started. This app needs access to
+                create companies, contacts, and read association schemas.
               </p>
-              <button
-                onClick={() => token.trim() && setTokenSaved(true)}
-                disabled={!token.trim()}
-                className="mt-4 w-full py-2.5 rounded-lg font-medium text-sm transition-all
-                  bg-[var(--accent)] text-white hover:brightness-110
-                  disabled:opacity-30 disabled:cursor-not-allowed"
+              <a
+                href="/api/auth/install"
+                className="inline-block w-full text-center py-2.5 rounded-lg font-medium text-sm transition-all
+                  bg-[var(--accent)] text-white hover:brightness-110"
               >
-                Continue
-              </button>
+                Connect to HubSpot
+              </a>
             </Section>
           </div>
-        ) : (
+        ) : loggedIn ? (
           <>
-            {/* Token indicator */}
+            {/* Auth indicator */}
             <div className="animate-in flex items-center justify-between mb-6 px-3 py-2 rounded-lg bg-[var(--surface)] border border-[var(--border)]">
               <div className="flex items-center gap-2">
                 <div className="w-1.5 h-1.5 rounded-full bg-[var(--success)]" />
                 <span className="text-xs font-mono text-[var(--text-muted)]">
-                  Token set · {token.slice(0, 12)}...
-                  {portalId && ` · Portal ${portalId}`}
+                  Connected{portalId ? ` · Portal ${portalId}` : ""}
                 </span>
               </div>
-              <button
-                onClick={() => {
-                  setTokenSaved(false);
-                  setLabels([]);
-                  setResults(null);
-                }}
+              <a
+                href="/api/auth/logout"
                 className="text-xs text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
               >
-                Change
-              </button>
+                Disconnect
+              </a>
             </div>
 
             {/* Partner */}
@@ -296,7 +303,7 @@ export default function Home() {
                 ) : labels.length > 0 ? (
                   <div>
                     <label className="block text-xs font-medium text-[var(--text-muted)] mb-1.5">
-                      Partner → Customer label
+                      Partner &rarr; Customer label
                     </label>
                     <select
                       value={associationLabel ?? ""}
@@ -374,7 +381,7 @@ export default function Home() {
                         <p className="text-sm font-medium">{r.name}</p>
                       </div>
                       <span className="text-xs font-mono text-[var(--text-muted)] group-hover:text-[var(--accent)] transition-colors">
-                        {r.id} →
+                        {r.id} &rarr;
                       </span>
                     </a>
                   ))}
@@ -382,13 +389,13 @@ export default function Home() {
               </div>
             )}
           </>
-        )}
+        ) : null}
       </div>
     </main>
   );
 }
 
-/* ── Reusable components ── */
+/* Reusable components */
 
 function Section({
   title,
