@@ -34,12 +34,51 @@ const emptyCompany = (): CompanyFields => ({
   contact: emptyContact(),
 });
 
-const APP_VERSION = "0.4.0";
+const APP_VERSION = "0.5.0";
+
+// Random data pools
+const FIRST_NAMES = ["Alex", "Jordan", "Sam", "Taylor", "Casey", "Morgan", "Riley", "Quinn", "Avery", "Dakota"];
+const LAST_NAMES = ["Smith", "Johnson", "Brown", "Garcia", "Miller", "Davis", "Wilson", "Moore", "Clark", "Hall"];
+const COMPANY_PREFIXES = ["Acme", "Nova", "Apex", "Vortex", "Stellar", "Nimbus", "Prism", "Helix", "Cobalt", "Zenith"];
+const COMPANY_SUFFIXES = ["Corp", "Solutions", "Industries", "Tech", "Group", "Labs", "Systems", "Digital", "Partners", "Global"];
+
+function pick<T>(arr: T[]): T {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+function randomSlug(): string {
+  return Math.random().toString(36).slice(2, 6);
+}
+
+function generateRandomCompany(userEmail: string, role: "partner" | "customer"): CompanyFields {
+  const first = pick(FIRST_NAMES);
+  const last = pick(LAST_NAMES);
+  const prefix = pick(COMPANY_PREFIXES);
+  const suffix = pick(COMPANY_SUFFIXES);
+  const slug = randomSlug();
+  const companyName = `${prefix} ${suffix}`;
+  const domain = `${prefix.toLowerCase()}-${slug}.test`;
+
+  // Plus-address: user+acme-partner-a3f2@domain.com
+  const [localPart, domainPart] = userEmail.split("@");
+  const tag = `${prefix.toLowerCase()}-${role}-${slug}`;
+  const contactEmail = `${localPart}+${tag}@${domainPart}`;
+
+  return {
+    name: companyName,
+    domain,
+    contact: {
+      firstname: first,
+      lastname: last,
+      email: contactEmail,
+    },
+  };
+}
 
 export default function Home() {
   const [authLoading, setAuthLoading] = useState(true);
-  const [userName, setUserName] = useState<string | null>(null);
-  const [nameInput, setNameInput] = useState("");
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [emailInput, setEmailInput] = useState("");
   const [portalId, setPortalId] = useState<string | null>(null);
 
   const [partner, setPartner] = useState<CompanyFields>(emptyCompany());
@@ -57,7 +96,7 @@ export default function Home() {
     fetch("/api/auth/me")
       .then((r) => r.json())
       .then((data) => {
-        if (data.loggedIn) setUserName(data.userName);
+        if (data.loggedIn) setUserEmail(data.userEmail);
       })
       .catch(() => {})
       .finally(() => setAuthLoading(false));
@@ -65,7 +104,7 @@ export default function Home() {
 
   // Fetch labels when identified
   useEffect(() => {
-    if (!userName) return;
+    if (!userEmail) return;
     setLabelsLoading(true);
     setError(null);
     fetch("/api/labels")
@@ -83,26 +122,33 @@ export default function Home() {
       })
       .catch((err) => setError(err.message || "Failed to fetch labels"))
       .finally(() => setLabelsLoading(false));
-  }, [userName]);
+  }, [userEmail]);
 
   const handleIdentify = async () => {
-    if (!nameInput.trim()) return;
+    if (!emailInput.trim() || !emailInput.includes("@")) return;
     const res = await fetch("/api/auth/me", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: nameInput.trim() }),
+      body: JSON.stringify({ email: emailInput.trim() }),
     });
     const data = await res.json();
-    if (data.loggedIn) setUserName(data.userName);
+    if (data.loggedIn) setUserEmail(data.userEmail);
   };
 
   const handleSignOut = async () => {
     await fetch("/api/auth/me", { method: "DELETE" });
-    setUserName(null);
-    setNameInput("");
+    setUserEmail(null);
+    setEmailInput("");
     setLabels([]);
     setResults(null);
     setPortalId(null);
+  };
+
+  const handleRandomize = (role: "partner" | "customer") => {
+    if (!userEmail) return;
+    const company = generateRandomCompany(userEmail, role);
+    if (role === "partner") setPartner(company);
+    else setCustomer(company);
   };
 
   const handleSubmit = async () => {
@@ -175,22 +221,26 @@ export default function Home() {
           </p>
         </div>
 
-        {/* Name entry */}
-        {!userName ? (
+        {/* Email entry */}
+        {!userEmail ? (
           <div className="animate-in animate-in-delay-1">
             <Section title="Who are you?">
               <p className="text-sm text-[var(--text-muted)] mb-4">
-                Enter your name so we can keep track of who created what.
+                Enter your email address. This is used for audit logging and to
+                generate plus-addressed contact emails (e.g.{" "}
+                <span className="font-mono text-xs">you+partner-test@company.com</span>)
+                that land in your inbox.
               </p>
               <Input
-                label="Your name"
-                value={nameInput}
-                onChange={setNameInput}
-                placeholder="e.g. Casey"
+                label="Your email"
+                value={emailInput}
+                onChange={setEmailInput}
+                type="email"
+                placeholder="casey@yorizon.com"
               />
               <button
                 onClick={handleIdentify}
-                disabled={!nameInput.trim()}
+                disabled={!emailInput.includes("@")}
                 className="mt-4 w-full py-2.5 rounded-lg font-medium text-sm transition-all
                   bg-[var(--accent)] text-white hover:brightness-110
                   disabled:opacity-30 disabled:cursor-not-allowed"
@@ -206,7 +256,7 @@ export default function Home() {
               <div className="flex items-center gap-2">
                 <div className="w-1.5 h-1.5 rounded-full bg-[var(--success)]" />
                 <span className="text-xs font-mono text-[var(--text-muted)]">
-                  Logged in as {userName}
+                  {userEmail}
                   {portalId ? ` · Portal ${portalId}` : ""}
                 </span>
               </div>
@@ -220,7 +270,20 @@ export default function Home() {
 
             {/* Partner */}
             <div className="animate-in animate-in-delay-1">
-              <Section title="Partner" badge="companytype = partner">
+              <Section
+                title="Partner"
+                badge="type = partner"
+                action={
+                  <button
+                    onClick={() => handleRandomize("partner")}
+                    className="text-xs px-2.5 py-1 rounded-md font-medium transition-all
+                      bg-[var(--surface-raised)] border border-[var(--border)]
+                      text-[var(--text-muted)] hover:text-[var(--text)] hover:border-[var(--accent)]"
+                  >
+                    Randomize
+                  </button>
+                }
+              >
                 <div className="grid grid-cols-2 gap-3">
                   <Input
                     label="Company name"
@@ -251,6 +314,7 @@ export default function Home() {
                     value={partner.contact.email}
                     onChange={(v) => updatePartnerContact({ email: v })}
                     type="email"
+                    mono
                   />
                 </div>
               </Section>
@@ -258,7 +322,20 @@ export default function Home() {
 
             {/* Customer */}
             <div className="animate-in animate-in-delay-2">
-              <Section title="Customer" badge="companytype = customer">
+              <Section
+                title="Customer"
+                badge="type = customer"
+                action={
+                  <button
+                    onClick={() => handleRandomize("customer")}
+                    className="text-xs px-2.5 py-1 rounded-md font-medium transition-all
+                      bg-[var(--surface-raised)] border border-[var(--border)]
+                      text-[var(--text-muted)] hover:text-[var(--text)] hover:border-[var(--accent)]"
+                  >
+                    Randomize
+                  </button>
+                }
+              >
                 <div className="grid grid-cols-2 gap-3">
                   <Input
                     label="Company name"
@@ -289,6 +366,7 @@ export default function Home() {
                     value={customer.contact.email}
                     onChange={(v) => updateCustomerContact({ email: v })}
                     type="email"
+                    mono
                   />
                 </div>
               </Section>
@@ -401,21 +479,26 @@ export default function Home() {
 function Section({
   title,
   badge,
+  action,
   children,
 }: {
   title: string;
   badge?: string;
+  action?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <div className="mb-6 p-5 rounded-xl bg-[var(--surface)] border border-[var(--border)]">
-      <div className="flex items-center gap-3 mb-4">
-        <h2 className="text-sm font-semibold tracking-tight">{title}</h2>
-        {badge && (
-          <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-[var(--surface-raised)] text-[var(--text-muted)] border border-[var(--border)]">
-            {badge}
-          </span>
-        )}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <h2 className="text-sm font-semibold tracking-tight">{title}</h2>
+          {badge && (
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-[var(--surface-raised)] text-[var(--text-muted)] border border-[var(--border)]">
+              {badge}
+            </span>
+          )}
+        </div>
+        {action}
       </div>
       {children}
     </div>

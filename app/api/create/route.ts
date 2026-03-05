@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
     }
 
     const session = await getSession();
-    if (!session.userName) {
+    if (!session.userEmail) {
       return NextResponse.json({ error: "Not identified" }, { status: 401 });
     }
 
@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    console.log(`[audit] ${session.userName} creating entities: partner="${partner.name}", customer="${customer.name}"`);
+    console.log(`[audit] ${session.userEmail} creating entities: partner="${partner.name}", customer="${customer.name}"`);
 
     const headers = {
       Authorization: `Bearer ${token}`,
@@ -115,7 +115,7 @@ export async function POST(req: NextRequest) {
       url: recordUrl("company", partnerCompany.id),
     });
 
-    console.log(`[audit] ${session.userName} created ${created.length} entities: ${created.map(c => `${c.type}(${c.id})`).join(", ")}`);
+    console.log(`[audit] ${session.userEmail} created ${created.length} entities: ${created.map(c => `${c.type}(${c.id})`).join(", ")}`);
     return NextResponse.json({ created });
   } catch (e: any) {
     console.error("[create] Error:", e.message);

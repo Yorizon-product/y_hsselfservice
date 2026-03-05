@@ -3,30 +3,30 @@ import { getSession } from "@/lib/session";
 
 export async function GET() {
   const session = await getSession();
-  if (!session.userName) {
+  if (!session.userEmail) {
     return NextResponse.json({ loggedIn: false });
   }
-  return NextResponse.json({ loggedIn: true, userName: session.userName });
+  return NextResponse.json({ loggedIn: true, userEmail: session.userEmail });
 }
 
 export async function POST(req: NextRequest) {
-  const { name } = await req.json();
-  if (!name || typeof name !== "string" || !name.trim()) {
-    return NextResponse.json({ error: "Name is required" }, { status: 400 });
+  const { email } = await req.json();
+  if (!email || typeof email !== "string" || !email.includes("@")) {
+    return NextResponse.json({ error: "Valid email is required" }, { status: 400 });
   }
 
   const session = await getSession();
-  session.userName = name.trim();
+  session.userEmail = email.trim().toLowerCase();
   await session.save();
 
-  console.log(`[audit] User identified: ${session.userName}`);
-  return NextResponse.json({ loggedIn: true, userName: session.userName });
+  console.log(`[audit] User identified: ${session.userEmail}`);
+  return NextResponse.json({ loggedIn: true, userEmail: session.userEmail });
 }
 
 export async function DELETE() {
   const session = await getSession();
-  const name = session.userName;
+  const email = session.userEmail;
   session.destroy();
-  console.log(`[audit] User signed out: ${name}`);
+  console.log(`[audit] User signed out: ${email}`);
   return NextResponse.json({ loggedIn: false });
 }

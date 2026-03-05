@@ -11,7 +11,7 @@ export async function GET() {
     }
 
     const session = await getSession();
-    if (!session.userName) {
+    if (!session.userEmail) {
       return NextResponse.json({ error: "Not identified" }, { status: 401 });
     }
 
@@ -56,7 +56,7 @@ export async function GET() {
       category: r.category || "HUBSPOT_DEFINED",
     }));
 
-    console.log(`[audit] ${session.userName} fetched ${labels.length} association labels`);
+    console.log(`[audit] ${session.userEmail} fetched ${labels.length} association labels`);
     return NextResponse.json({ labels, portalId });
   } catch (e: any) {
     console.error("[labels] Error:", e.message);
