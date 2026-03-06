@@ -28,7 +28,7 @@ const emptyCompany = (): CompanyFields => ({
   contact: emptyContact(),
 });
 
-const APP_VERSION = "0.6.0";
+const APP_VERSION = "0.6.1";
 
 // Random data pools
 const FIRST_NAMES = ["Alex", "Jordan", "Sam", "Taylor", "Casey", "Morgan", "Riley", "Quinn", "Avery", "Dakota"];
@@ -476,6 +476,14 @@ export default function Home() {
                     </a>
                   ))}
                 </div>
+                <button
+                  onClick={handleSignOut}
+                  className="mt-6 w-full min-h-[44px] py-3 rounded-pill font-button font-semibold text-sm uppercase tracking-wide transition-all
+                    bg-[var(--bg-section)] border border-[var(--border-default)]
+                    text-[var(--text-primary)] hover:border-[var(--text-accent)]"
+                >
+                  Start over
+                </button>
               </div>
             )}
           </>
