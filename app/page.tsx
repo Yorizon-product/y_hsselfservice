@@ -290,7 +290,7 @@ export default function Home() {
                 value={emailInput}
                 onChange={setEmailInput}
                 type="email"
-                placeholder="casey@yorizon.com"
+                placeholder="firstname.lastname@yorizon.com"
               />
               <button
                 onClick={handleIdentify}

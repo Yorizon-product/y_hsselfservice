@@ -70,7 +70,8 @@ export async function POST(req: NextRequest) {
       setTimeout(() => recentKeys.delete(idempotencyKey), 30_000);
     }
 
-    console.log(`[audit] ${session.userEmail} creating entities: partner="${partner.name}", customer="${customer.name}"`);
+    const createdBy = session.userEmail;
+    console.log(`[audit] ${createdBy} creating entities: partner="${partner.name}", customer="${customer.name}"`);
 
     const headers = {
       Authorization: `Bearer ${token}`,
@@ -85,9 +86,12 @@ export async function POST(req: NextRequest) {
         : `#${type}-${id}`;
 
     try {
+      const noteBody = `Created via HS Self-Service tool by ${createdBy} on ${new Date().toISOString().slice(0, 10)}`;
+
       // 1. Create partner company
       const partnerCompany = await createCompany(headers, partner.name, partner.domain, "PARTNER");
       createdIds.push({ type: "companies", id: partnerCompany.id });
+      await createNote(headers, noteBody, "companies", partnerCompany.id);
       created.push({
         type: "Partner Company",
         id: partnerCompany.id,
@@ -98,6 +102,7 @@ export async function POST(req: NextRequest) {
       // 2. Create partner contact + associate to company
       const partnerContact = await createContact(headers, partner.contact, partnerCompany.id);
       createdIds.push({ type: "contacts", id: partnerContact.id });
+      await createNote(headers, noteBody, "contacts", partnerContact.id);
       created.push({
         type: "Partner Contact",
         id: partnerContact.id,
@@ -108,6 +113,7 @@ export async function POST(req: NextRequest) {
       // 3. Create customer company
       const customerCompany = await createCompany(headers, customer.name, customer.domain, "CUSTOMER");
       createdIds.push({ type: "companies", id: customerCompany.id });
+      await createNote(headers, noteBody, "companies", customerCompany.id);
       created.push({
         type: "Customer Company",
         id: customerCompany.id,
@@ -118,6 +124,7 @@ export async function POST(req: NextRequest) {
       // 4. Create customer contact + associate to company
       const customerContact = await createContact(headers, customer.contact, customerCompany.id);
       createdIds.push({ type: "contacts", id: customerContact.id });
+      await createNote(headers, noteBody, "contacts", customerContact.id);
       created.push({
         type: "Customer Contact",
         id: customerContact.id,
@@ -201,6 +208,31 @@ async function createContact(
       {
         to: { id: companyId },
         types: [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: 1 }],
+      },
+    ],
+  });
+}
+
+async function createNote(
+  headers: Record<string, string>,
+  body: string,
+  objectType: "companies" | "contacts",
+  objectId: string
+) {
+  return hubspotFetch(`${HUBSPOT_API}/crm/v3/objects/notes`, headers, {
+    properties: {
+      hs_note_body: body,
+      hs_timestamp: new Date().toISOString(),
+    },
+    associations: [
+      {
+        to: { id: objectId },
+        types: [
+          {
+            associationCategory: "HUBSPOT_DEFINED",
+            associationTypeId: objectType === "contacts" ? 202 : 190,
+          },
+        ],
       },
     ],
   });
