@@ -28,7 +28,7 @@ const emptyCompany = (): CompanyFields => ({
   contact: emptyContact(),
 });
 
-const APP_VERSION = "0.6.4";
+const APP_VERSION = "0.6.5";
 
 // Random data pools
 const FIRST_NAMES = ["Alex", "Jordan", "Sam", "Taylor", "Casey", "Morgan", "Riley", "Quinn", "Avery", "Dakota"];
