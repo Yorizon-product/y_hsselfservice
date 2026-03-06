@@ -21,12 +21,6 @@ type CreatedEntity = {
   url: string;
 };
 
-type AssociationLabel = {
-  typeId: number;
-  label: string;
-  category: string;
-};
-
 const emptyContact = (): ContactFields => ({ firstname: "", lastname: "", email: "" });
 const emptyCompany = (): CompanyFields => ({
   name: "",
@@ -34,7 +28,7 @@ const emptyCompany = (): CompanyFields => ({
   contact: emptyContact(),
 });
 
-const APP_VERSION = "0.5.0";
+const APP_VERSION = "0.6.0";
 
 // Random data pools
 const FIRST_NAMES = ["Alex", "Jordan", "Sam", "Taylor", "Casey", "Morgan", "Riley", "Quinn", "Avery", "Dakota"];
@@ -117,9 +111,6 @@ export default function Home() {
 
   const [partner, setPartner] = useState<CompanyFields>(emptyCompany());
   const [customer, setCustomer] = useState<CompanyFields>(emptyCompany());
-  const [associationLabel, setAssociationLabel] = useState<number | null>(null);
-  const [labels, setLabels] = useState<AssociationLabel[]>([]);
-  const [labelsLoading, setLabelsLoading] = useState(false);
 
   const [portalRole, setPortalRole] = useState("Admin-RW");
 
@@ -141,33 +132,16 @@ export default function Home() {
       .finally(() => setAuthLoading(false));
   }, []);
 
-  // Fetch labels when identified
+  // Fetch portal ID when identified
   useEffect(() => {
     if (!userEmail) return;
-    setLabelsLoading(true);
-    setError(null);
     fetch("/api/labels")
       .then(async (r) => {
         const data = await r.json();
-        if (!r.ok) {
-          setError(data.error || `Labels fetch failed: ${r.status}`);
-          return;
-        }
-        if (data.labels) {
-          const userLabels = data.labels.filter(
-            (l: AssociationLabel) => l.category === "USER_DEFINED"
-          );
-          setLabels(userLabels);
-          // Auto-select the "Partner" label
-          const partnerLabel = userLabels.find(
-            (l: AssociationLabel) => l.label?.toLowerCase() === "partner"
-          );
-          setAssociationLabel(partnerLabel?.typeId ?? userLabels[0]?.typeId ?? null);
-        }
+        if (!r.ok) return;
         if (data.portalId) setPortalId(data.portalId);
       })
-      .catch((err) => setError(err.message || "Failed to fetch labels"))
-      .finally(() => setLabelsLoading(false));
+      .catch(() => {});
   }, [userEmail]);
 
   const isValidEmail = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
@@ -187,7 +161,6 @@ export default function Home() {
     await fetch("/api/auth/me", { method: "DELETE" });
     setUserEmail(null);
     setEmailInput("");
-    setLabels([]);
     setResults(null);
     setPortalId(null);
   };
@@ -216,7 +189,6 @@ export default function Home() {
         body: JSON.stringify({
           partner,
           customer,
-          associationLabelId: associationLabel,
           portalId,
           portalRole,
         }),
@@ -247,8 +219,7 @@ export default function Home() {
     partner.name &&
     partner.contact.email &&
     customer.name &&
-    customer.contact.email &&
-    associationLabel !== null;
+    customer.contact.email;
 
   if (authLoading) {
     return (

@@ -29,13 +29,11 @@ export async function POST(req: NextRequest) {
     const {
       partner,
       customer,
-      associationLabelId,
       portalId,
       portalRole,
     }: {
       partner: CompanyInput;
       customer: CompanyInput;
-      associationLabelId: number;
       portalId: string | null;
       portalRole: string;
     } = body;
@@ -52,13 +50,6 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-    if (!associationLabelId) {
-      return NextResponse.json(
-        { error: "Association label ID is required" },
-        { status: 400 }
-      );
-    }
-
     // Idempotency: reject duplicate submissions within a short window
     const idempotencyKey = req.headers.get("x-idempotency-key");
     if (idempotencyKey && recentKeys.has(idempotencyKey)) {
@@ -135,7 +126,7 @@ export async function POST(req: NextRequest) {
       });
 
       // 5. Associate partner company <-> customer company with label
-      await associateCompanies(headers, partnerCompany.id, customerCompany.id, associationLabelId);
+      await associateCompanies(headers, partnerCompany.id, customerCompany.id);
       created.push({
         type: "Association",
         id: `${partnerCompany.id}\u2194${customerCompany.id}`,
@@ -245,13 +236,12 @@ async function createNote(
 async function associateCompanies(
   headers: Record<string, string>,
   fromId: string,
-  toId: string,
-  labelTypeId: number
+  toId: string
 ) {
   return hubspotFetch(
     `${HUBSPOT_API}/crm/v4/objects/companies/${fromId}/associations/companies/${toId}`,
     headers,
-    [{ associationCategory: "USER_DEFINED", associationTypeId: labelTypeId }],
+    [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: 13 }],
     "PUT"
   );
 }
