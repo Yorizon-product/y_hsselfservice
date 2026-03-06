@@ -31,11 +31,13 @@ export async function POST(req: NextRequest) {
       customer,
       associationLabelId,
       portalId,
+      portalRole,
     }: {
       partner: CompanyInput;
       customer: CompanyInput;
       associationLabelId: number;
       portalId: string | null;
+      portalRole: string;
     } = body;
 
     if (!partner?.name || !partner?.contact?.email) {
@@ -100,7 +102,7 @@ export async function POST(req: NextRequest) {
       });
 
       // 2. Create partner contact + associate to company
-      const partnerContact = await createContact(headers, partner.contact, partnerCompany.id);
+      const partnerContact = await createContact(headers, partner.contact, partnerCompany.id, portalRole);
       createdIds.push({ type: "contacts", id: partnerContact.id });
       await createNote(headers, noteBody, "contacts", partnerContact.id);
       created.push({
@@ -122,7 +124,7 @@ export async function POST(req: NextRequest) {
       });
 
       // 4. Create customer contact + associate to company
-      const customerContact = await createContact(headers, customer.contact, customerCompany.id);
+      const customerContact = await createContact(headers, customer.contact, customerCompany.id, portalRole);
       createdIds.push({ type: "contacts", id: customerContact.id });
       await createNote(headers, noteBody, "contacts", customerContact.id);
       created.push({
@@ -197,11 +199,13 @@ async function createCompany(
 async function createContact(
   headers: Record<string, string>,
   contact: ContactInput,
-  companyId: string
+  companyId: string,
+  portalRole: string
 ) {
   const properties: Record<string, string> = { email: contact.email };
   if (contact.firstname) properties.firstname = contact.firstname;
   if (contact.lastname) properties.lastname = contact.lastname;
+  if (portalRole) properties.portal_role = portalRole;
   return hubspotFetch(`${HUBSPOT_API}/crm/v3/objects/contacts`, headers, {
     properties,
     associations: [

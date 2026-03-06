@@ -121,6 +121,8 @@ export default function Home() {
   const [labels, setLabels] = useState<AssociationLabel[]>([]);
   const [labelsLoading, setLabelsLoading] = useState(false);
 
+  const [portalRole, setPortalRole] = useState("Administrator");
+
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<CreatedEntity[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -213,6 +215,7 @@ export default function Home() {
           customer,
           associationLabelId: associationLabel,
           portalId,
+          portalRole,
         }),
       });
       const data = await res.json();
@@ -465,6 +468,28 @@ export default function Home() {
                     mono
                   />
                 )}
+              </Section>
+            </div>
+
+            {/* Portal Role */}
+            <div className="animate-in animate-in-delay-3">
+              <Section title="Portal Role">
+                <div>
+                  <label className="block text-[14px] font-medium text-[var(--text-muted)] mb-1.5">
+                    Role assigned to both contacts
+                  </label>
+                  <select
+                    value={portalRole}
+                    onChange={(e) => setPortalRole(e.target.value)}
+                    className="w-full px-3 h-[50px] rounded-[5px] text-[16px]
+                      bg-[var(--bg-input)] border border-[var(--border-default)]
+                      text-[var(--text-primary)] transition-colors"
+                  >
+                    <option value="Administrator">Administrator</option>
+                    <option value="User - Read & Write">User - Read &amp; Write</option>
+                    <option value="User - Read Only">User - Read Only</option>
+                  </select>
+                </div>
               </Section>
             </div>
 
