@@ -154,12 +154,15 @@ export default function Home() {
           return;
         }
         if (data.labels) {
-          // Only show custom (USER_DEFINED) association labels
           const userLabels = data.labels.filter(
             (l: AssociationLabel) => l.category === "USER_DEFINED"
           );
           setLabels(userLabels);
-          if (userLabels.length > 0) setAssociationLabel(userLabels[0].typeId);
+          // Auto-select the "Partner" label
+          const partnerLabel = userLabels.find(
+            (l: AssociationLabel) => l.label?.toLowerCase() === "partner"
+          );
+          setAssociationLabel(partnerLabel?.typeId ?? userLabels[0]?.typeId ?? null);
         }
         if (data.portalId) setPortalId(data.portalId);
       })
@@ -429,47 +432,6 @@ export default function Home() {
               </Section>
             </div>
 
-            {/* Association label */}
-            <div className="animate-in animate-in-delay-3">
-              <Section title="Association">
-                {labelsLoading ? (
-                  <p className="text-sm text-[var(--text-muted)]">
-                    Loading association labels from HubSpot...
-                  </p>
-                ) : labels.length > 0 ? (
-                  <div>
-                    <label className="block text-[14px] font-medium text-[var(--text-muted)] mb-1.5">
-                      Partner &rarr; Customer label
-                    </label>
-                    <select
-                      value={associationLabel ?? ""}
-                      onChange={(e) =>
-                        setAssociationLabel(Number(e.target.value))
-                      }
-                      className="w-full px-3 h-[50px] rounded-[5px] text-[16px]
-                        bg-[var(--bg-input)] border border-[var(--border-default)]
-                        text-[var(--text-primary)] transition-colors"
-                    >
-                      {labels.map((l) => (
-                        <option key={l.typeId} value={l.typeId}>
-                          {l.label || `Unlabeled (${l.typeId})`}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                ) : (
-                  <Input
-                    label="Association Type ID (manual)"
-                    value={String(associationLabel ?? "")}
-                    onChange={(v) =>
-                      setAssociationLabel(v ? Number(v) : null)
-                    }
-                    placeholder="e.g. 13"
-                    mono
-                  />
-                )}
-              </Section>
-            </div>
 
             {/* Portal Role */}
             <div className="animate-in animate-in-delay-3">
