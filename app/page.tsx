@@ -115,8 +115,12 @@ export default function Home() {
           return;
         }
         if (data.labels) {
-          setLabels(data.labels);
-          if (data.labels.length > 0) setAssociationLabel(data.labels[0].typeId);
+          // Only show custom (USER_DEFINED) association labels
+          const userLabels = data.labels.filter(
+            (l: AssociationLabel) => l.category === "USER_DEFINED"
+          );
+          setLabels(userLabels);
+          if (userLabels.length > 0) setAssociationLabel(userLabels[0].typeId);
         }
         if (data.portalId) setPortalId(data.portalId);
       })
@@ -272,7 +276,7 @@ export default function Home() {
             <div className="animate-in animate-in-delay-1">
               <Section
                 title="Partner"
-                badge="type = partner"
+                badge="type = PARTNER"
                 action={
                   <button
                     onClick={() => handleRandomize("partner")}
@@ -324,7 +328,7 @@ export default function Home() {
             <div className="animate-in animate-in-delay-2">
               <Section
                 title="Customer"
-                badge="type = customer"
+                badge="type = CUSTOMER"
                 action={
                   <button
                     onClick={() => handleRandomize("customer")}
@@ -395,8 +399,7 @@ export default function Home() {
                     >
                       {labels.map((l) => (
                         <option key={l.typeId} value={l.typeId}>
-                          {l.label || `Unlabeled (${l.typeId})`} ·{" "}
-                          {l.category}
+                          {l.label || `Unlabeled (${l.typeId})`}
                         </option>
                       ))}
                     </select>

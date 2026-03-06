@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
         : `#${type}-${id}`;
 
     // 1. Create partner company
-    const partnerCompany = await createCompany(headers, partner.name, partner.domain, "partner");
+    const partnerCompany = await createCompany(headers, partner.name, partner.domain, "PARTNER");
     created.push({
       type: "Partner Company",
       id: partnerCompany.id,
@@ -89,7 +89,7 @@ export async function POST(req: NextRequest) {
     });
 
     // 3. Create customer company
-    const customerCompany = await createCompany(headers, customer.name, customer.domain, "customer");
+    const customerCompany = await createCompany(headers, customer.name, customer.domain, "CUSTOMER");
     created.push({
       type: "Customer Company",
       id: customerCompany.id,
@@ -152,7 +152,7 @@ async function createCompany(
   headers: Record<string, string>,
   name: string,
   domain: string,
-  type: "partner" | "customer"
+  type: "PARTNER" | "CUSTOMER"
 ) {
   const properties: Record<string, string> = { name, type };
   if (domain) properties.domain = domain;
