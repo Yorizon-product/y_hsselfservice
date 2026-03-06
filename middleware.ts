@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
+function fromBase64(encoded: string): string {
+  const bytes = Uint8Array.from(atob(encoded), (c) => c.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
 export function middleware(req: NextRequest) {
   const user = process.env.BASIC_AUTH_USER;
   const pass = process.env.BASIC_AUTH_PASS;
@@ -9,9 +14,17 @@ export function middleware(req: NextRequest) {
 
   const auth = req.headers.get("authorization");
   if (auth) {
-    const expected = `Basic ${btoa(`${user}:${pass}`)}`;
-    if (auth === expected) {
-      return NextResponse.next();
+    const [scheme, encoded] = auth.split(" ");
+    if (scheme === "Basic" && encoded) {
+      const decoded = fromBase64(encoded);
+      const idx = decoded.indexOf(":");
+      if (idx !== -1) {
+        const u = decoded.slice(0, idx);
+        const p = decoded.slice(idx + 1);
+        if (u === user && p === pass) {
+          return NextResponse.next();
+        }
+      }
     }
   }
 
