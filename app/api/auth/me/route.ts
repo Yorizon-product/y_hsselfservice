@@ -11,7 +11,8 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   const { email } = await req.json();
-  if (!email || typeof email !== "string" || !email.includes("@")) {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!email || typeof email !== "string" || !emailRegex.test(email)) {
     return NextResponse.json({ error: "Valid email is required" }, { status: 400 });
   }
 

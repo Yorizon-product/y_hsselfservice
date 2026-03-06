@@ -5,8 +5,12 @@ export type SessionData = {
   userEmail?: string;
 };
 
+if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32) {
+  throw new Error("SESSION_SECRET env var is missing or too short (min 32 chars)");
+}
+
 export const sessionOptions: SessionOptions = {
-  password: process.env.SESSION_SECRET!,
+  password: process.env.SESSION_SECRET,
   cookieName: "hs-selfservice-session",
   cookieOptions: {
     httpOnly: true,

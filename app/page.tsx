@@ -94,8 +94,9 @@ export default function Home() {
   // Check if user already identified
   useEffect(() => {
     fetch("/api/auth/me")
-      .then((r) => r.json())
-      .then((data) => {
+      .then(async (r) => {
+        if (!r.ok) return;
+        const data = await r.json();
         if (data.loggedIn) setUserEmail(data.userEmail);
       })
       .catch(() => {})
@@ -128,8 +129,10 @@ export default function Home() {
       .finally(() => setLabelsLoading(false));
   }, [userEmail]);
 
+  const isValidEmail = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
+
   const handleIdentify = async () => {
-    if (!emailInput.trim() || !emailInput.includes("@")) return;
+    if (!isValidEmail(emailInput.trim())) return;
     const res = await fetch("/api/auth/me", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -156,14 +159,19 @@ export default function Home() {
   };
 
   const handleSubmit = async () => {
+    if (loading) return; // prevent double-click
     setLoading(true);
     setError(null);
     setResults(null);
 
     try {
+      const idempotencyKey = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const res = await fetch("/api/create", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-idempotency-key": idempotencyKey,
+        },
         body: JSON.stringify({
           partner,
           customer,
@@ -174,6 +182,9 @@ export default function Home() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Something went wrong");
       setResults(data.created);
+      // Reset form after successful creation
+      setPartner(emptyCompany());
+      setCustomer(emptyCompany());
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -244,7 +255,7 @@ export default function Home() {
               />
               <button
                 onClick={handleIdentify}
-                disabled={!emailInput.includes("@")}
+                disabled={!isValidEmail(emailInput.trim())}
                 className="mt-4 w-full py-2.5 rounded-lg font-medium text-sm transition-all
                   bg-[var(--accent)] text-white hover:brightness-110
                   disabled:opacity-30 disabled:cursor-not-allowed"
