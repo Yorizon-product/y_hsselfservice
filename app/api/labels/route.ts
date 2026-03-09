@@ -1,19 +1,22 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
+import { getHubSpotToken, AuthError } from "@/lib/hubspot-token";
 
 const HUBSPOT_API = "https://api.hubapi.com";
 
 export async function GET() {
   try {
-    const token = process.env.HUBSPOT_TOKEN;
-    if (!token) {
-      return NextResponse.json({ error: "Server misconfigured: missing HUBSPOT_TOKEN" }, { status: 500 });
+    let token: string;
+    try {
+      token = await getHubSpotToken();
+    } catch (e) {
+      if (e instanceof AuthError) {
+        return NextResponse.json({ error: e.message }, { status: 401 });
+      }
+      throw e;
     }
 
     const session = await getSession();
-    if (!session.userEmail) {
-      return NextResponse.json({ error: "Not identified" }, { status: 401 });
-    }
 
     const headers = {
       Authorization: `Bearer ${token}`,
@@ -56,7 +59,7 @@ export async function GET() {
       category: r.category || "HUBSPOT_DEFINED",
     }));
 
-    console.log(`[audit] ${session.userEmail} fetched ${labels.length} association labels`);
+    console.log(`[audit] ${session.userEmail || "unknown"} fetched ${labels.length} association labels`);
     return NextResponse.json({ labels, portalId });
   } catch (e: any) {
     console.error("[labels] Error:", e.message);

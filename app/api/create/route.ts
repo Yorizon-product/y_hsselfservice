@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
+import { getHubSpotToken, AuthError } from "@/lib/hubspot-token";
 
 const HUBSPOT_API = "https://api.hubapi.com";
 
@@ -15,15 +16,17 @@ type CreatedEntity = {
 
 export async function POST(req: NextRequest) {
   try {
-    const token = process.env.HUBSPOT_TOKEN;
-    if (!token) {
-      return NextResponse.json({ error: "Server misconfigured: missing HUBSPOT_TOKEN" }, { status: 500 });
+    let token: string;
+    try {
+      token = await getHubSpotToken();
+    } catch (e) {
+      if (e instanceof AuthError) {
+        return NextResponse.json({ error: e.message }, { status: 401 });
+      }
+      throw e;
     }
 
     const session = await getSession();
-    if (!session.userEmail) {
-      return NextResponse.json({ error: "Not identified" }, { status: 401 });
-    }
 
     const body = await req.json();
     const {
@@ -63,7 +66,7 @@ export async function POST(req: NextRequest) {
       setTimeout(() => recentKeys.delete(idempotencyKey), 30_000);
     }
 
-    const createdBy = session.userEmail;
+    const createdBy = session.userEmail || "unknown";
     console.log(`[audit] ${createdBy} creating entities: partner="${partner.name}", customer="${customer.name}"`);
 
     const headers = {
@@ -140,7 +143,7 @@ export async function POST(req: NextRequest) {
       throw stepError;
     }
 
-    console.log(`[audit] ${session.userEmail} created ${created.length} entities: ${created.map(c => `${c.type}(${c.id})`).join(", ")}`);
+    console.log(`[audit] ${createdBy} created ${created.length} entities: ${created.map(c => `${c.type}(${c.id})`).join(", ")}`);
     return NextResponse.json({ created });
   } catch (e: any) {
     console.error("[create] Error:", e.message);

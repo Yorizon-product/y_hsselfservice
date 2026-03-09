@@ -28,7 +28,7 @@ const emptyCompany = (): CompanyFields => ({
   contact: emptyContact(),
 });
 
-const APP_VERSION = "0.7.1";
+const APP_VERSION = "0.8.0";
 
 // Random data pools
 const FIRST_NAMES = ["Alex", "Jordan", "Sam", "Taylor", "Casey", "Morgan", "Riley", "Quinn", "Avery", "Dakota"];
@@ -44,7 +44,7 @@ function randomSlug(): string {
   return Math.random().toString(36).slice(2, 6);
 }
 
-function generateRandomCompany(userEmail: string, role: "partner" | "customer"): CompanyFields {
+function generateRandomCompany(userEmail: string | null, role: "partner" | "customer"): CompanyFields {
   const first = pick(FIRST_NAMES);
   const last = pick(LAST_NAMES);
   const prefix = pick(COMPANY_PREFIXES);
@@ -53,10 +53,15 @@ function generateRandomCompany(userEmail: string, role: "partner" | "customer"):
   const companyName = `${prefix} ${suffix}`;
   const domain = `${prefix.toLowerCase()}-${slug}.test`;
 
-  // Plus-address: user+acme-partner-a3f2@domain.com
-  const [localPart, domainPart] = userEmail.split("@");
   const tag = `${prefix.toLowerCase()}-${role}-${slug}`;
-  const contactEmail = `${localPart}+${tag}@${domainPart}`;
+  let contactEmail: string;
+  if (userEmail && userEmail.includes("@")) {
+    // Plus-address: user+acme-partner-a3f2@domain.com
+    const [localPart, domainPart] = userEmail.split("@");
+    contactEmail = `${localPart}+${tag}@${domainPart}`;
+  } else {
+    contactEmail = `${first.toLowerCase()}.${last.toLowerCase()}+${tag}@example.com`;
+  }
 
   return {
     name: companyName,
@@ -105,8 +110,8 @@ function useTheme() {
 
 export default function Home() {
   const [authLoading, setAuthLoading] = useState(true);
+  const [loggedIn, setLoggedIn] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
-  const [emailInput, setEmailInput] = useState("");
   const [portalId, setPortalId] = useState<string | null>(null);
 
   const [partner, setPartner] = useState<CompanyFields>(emptyCompany());
@@ -127,13 +132,14 @@ export default function Home() {
     return () => { if (cooldownRef.current) clearInterval(cooldownRef.current); };
   }, []);
 
-  // Check if user already identified
+  // Check if user already authenticated via OAuth
   useEffect(() => {
     fetch("/api/auth/me")
       .then(async (r) => {
         if (!r.ok) return;
         const data = await r.json();
         if (data.loggedIn) {
+          setLoggedIn(true);
           setUserEmail(data.userEmail);
           if (data.portalId) setPortalId(data.portalId);
         }
@@ -142,29 +148,11 @@ export default function Home() {
       .finally(() => setAuthLoading(false));
   }, []);
 
-  const isValidEmail = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
-
-  const handleIdentify = async () => {
-    if (!isValidEmail(emailInput.trim())) return;
-    const res = await fetch("/api/auth/me", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: emailInput.trim() }),
-    });
-    const data = await res.json();
-    if (data.loggedIn) setUserEmail(data.userEmail);
-  };
-
-  const handleSignOut = async () => {
-    await fetch("/api/auth/me", { method: "DELETE" });
-    setUserEmail(null);
-    setEmailInput("");
-    setResults(null);
-    setPortalId(null);
+  const handleSignOut = () => {
+    window.location.href = "/api/auth/logout";
   };
 
   const handleRandomize = (role: "partner" | "customer") => {
-    if (!userEmail) return;
     const company = generateRandomCompany(userEmail, role);
     if (role === "partner") setPartner(company);
     else setCustomer(company);
@@ -182,6 +170,8 @@ export default function Home() {
   };
 
   const friendlyError = (msg: string): string => {
+    if (msg.includes("Not authenticated") || msg.includes("expired"))
+      return "Your HubSpot session has expired. Please reconnect.";
     if (msg.includes("502") || msg.includes("Bad Gateway"))
       return "HubSpot is temporarily unreachable (502). This is on their end — please try again in a moment.";
     if (msg.includes("503") || msg.includes("Service Unavailable"))
@@ -274,32 +264,21 @@ export default function Home() {
           </p>
         </div>
 
-        {/* Email entry */}
-        {!userEmail ? (
+        {/* Auth */}
+        {!loggedIn ? (
           <div className="animate-in animate-in-delay-1">
-            <Section title="Who are you?">
+            <Section title="Connect to HubSpot">
               <p className="text-sm text-[var(--text-muted)] mb-4">
-                Enter your email address. This is used for audit logging and to
-                generate plus-addressed contact emails (e.g.{" "}
-                <span className="font-mono text-xs">you+partner-test@company.com</span>)
-                that land in your inbox.
+                Sign in with your HubSpot account to get started. This grants
+                the tool permission to create entities in your portal.
               </p>
-              <Input
-                label="Your email"
-                value={emailInput}
-                onChange={setEmailInput}
-                type="email"
-                placeholder="firstname.lastname@yorizon.com"
-              />
-              <button
-                onClick={handleIdentify}
-                disabled={!isValidEmail(emailInput.trim())}
-                className="mt-4 w-full min-h-[44px] py-2.5 rounded-pill font-button font-semibold text-sm uppercase tracking-wide transition-all
-                  bg-[var(--bg-primary)] text-[var(--text-on-primary)] hover:opacity-90
-                  disabled:opacity-30 disabled:cursor-not-allowed"
+              <a
+                href="/api/auth/install"
+                className="block w-full min-h-[44px] py-2.5 rounded-pill font-button font-semibold text-sm uppercase tracking-wide transition-all text-center
+                  bg-[var(--bg-primary)] text-[var(--text-on-primary)] hover:opacity-90"
               >
-                Continue
-              </button>
+                Connect to HubSpot
+              </a>
             </Section>
           </div>
         ) : (
@@ -309,7 +288,7 @@ export default function Home() {
               <div className="flex items-center gap-2">
                 <div className="w-1.5 h-1.5 rounded-full bg-[var(--color-success)]" />
                 <span className="text-xs font-mono text-[var(--text-muted)]">
-                  {userEmail}
+                  {userEmail || "Connected"}
                   {portalId ? ` · Portal ${portalId}` : ""}
                 </span>
               </div>
@@ -317,7 +296,7 @@ export default function Home() {
                 onClick={handleSignOut}
                 className="text-xs font-button min-h-[44px] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
               >
-                Switch user
+                Disconnect
               </button>
             </div>
 

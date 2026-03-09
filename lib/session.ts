@@ -2,7 +2,12 @@ import { getIronSession, SessionOptions } from "iron-session";
 import { cookies } from "next/headers";
 
 export type SessionData = {
+  accessToken?: string;
+  refreshToken?: string;
+  expiresAt?: number; // Unix timestamp (ms)
+  portalId?: string;
   userEmail?: string;
+  oauthState?: string;
 };
 
 if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32) {
