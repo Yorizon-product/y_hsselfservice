@@ -47,10 +47,15 @@ async function fetchTheme() {
   // Support both CSS and JSON responses
   if (contentType.includes("application/json")) {
     const json = await res.json();
-    // tweakcn JSON export: { css: "..." } or { light: {...}, dark: {...} }
-    if (json.css) return json.css;
+    // tweakcn registry format: { cssVars: { light: {...}, dark: {...} } }
+    if (json.cssVars && (json.cssVars.light || json.cssVars.dark)) {
+      return jsonToCSS(json.cssVars);
+    }
+    // tweakcn JSON export: { css: "..." } (string)
+    if (typeof json.css === "string") return json.css;
+    // Fallback: { light: {...}, dark: {...} }
     if (json.light || json.dark) return jsonToCSS(json);
-    console.error("Error: Unexpected JSON format from tweakcn. Expected { css } or { light, dark }.");
+    console.error("Error: Unexpected JSON format from tweakcn. Expected { cssVars }, { css } or { light, dark }.");
     process.exit(1);
   }
 

@@ -29,7 +29,7 @@ const emptyCompany = (): CompanyFields => ({
   contact: emptyContact(),
 });
 
-const APP_VERSION = "0.9.1";
+const APP_VERSION = "0.9.2";
 
 function generateRandomCompany(userEmail: string | null, role: "partner" | "customer"): CompanyFields {
   const first = faker.person.firstName();
