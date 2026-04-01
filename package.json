@@ -1,8 +1,9 @@
 {
   "name": "y_hsselfservice",
-  "version": "0.5.0",
+  "version": "1.0.0",
   "private": true,
   "scripts": {
+    "prepare": "cp scripts/bump-version.sh .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit",
     "dev": "next dev",
     "prebuild": "node scripts/sync-theme.mjs",
     "build": "next build",

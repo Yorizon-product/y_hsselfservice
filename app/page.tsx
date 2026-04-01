@@ -29,7 +29,8 @@ const emptyCompany = (): CompanyFields => ({
   contact: emptyContact(),
 });
 
-const APP_VERSION = "1.0.0";
+import packageJson from "../package.json";
+const APP_VERSION = packageJson.version;
 
 type Mode = "simple" | "advanced";
 
