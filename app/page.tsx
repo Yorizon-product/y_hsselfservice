@@ -29,7 +29,9 @@ const emptyCompany = (): CompanyFields => ({
   contact: emptyContact(),
 });
 
-const APP_VERSION = "0.9.2";
+const APP_VERSION = "1.0.0";
+
+type Mode = "simple" | "advanced";
 
 function generateRandomCompany(userEmail: string | null, role: "partner" | "customer"): CompanyFields {
   const first = faker.person.firstName();
@@ -92,6 +94,26 @@ function useTheme() {
   return { theme, cycle };
 }
 
+function useMode() {
+  const [mode, setModeState] = useState<Mode | null>(null);
+
+  useEffect(() => {
+    const stored = localStorage.getItem("mode") as Mode | null;
+    setModeState(stored === "advanced" ? "advanced" : "simple");
+  }, []);
+
+  const setMode = useCallback((m: Mode) => {
+    setModeState(m);
+    localStorage.setItem("mode", m);
+    // Dismiss hint on first switch to advanced
+    if (m === "advanced") {
+      localStorage.setItem("hint-dismissed", "true");
+    }
+  }, []);
+
+  return { mode, setMode };
+}
+
 export default function Home() {
   const [authLoading, setAuthLoading] = useState(true);
   const [loggedIn, setLoggedIn] = useState(false);
@@ -101,7 +123,12 @@ export default function Home() {
   const [partner, setPartner] = useState<CompanyFields>(emptyCompany());
   const [customer, setCustomer] = useState<CompanyFields>(emptyCompany());
 
-  const [portalRole, setPortalRole] = useState("Admin-RW");
+  const [portalRole, setPortalRole] = useState("User-RO");
+  const [partnerRole, setPartnerRole] = useState("User-RO");
+  const [customerRole, setCustomerRole] = useState("User-RO");
+
+  const [partnerEnabled, setPartnerEnabled] = useState(true);
+  const [customerEnabled, setCustomerEnabled] = useState(true);
 
   const [loading, setLoading] = useState(false);
   const [cooldown, setCooldown] = useState(0);
@@ -110,6 +137,14 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
 
   const { theme, cycle: cycleTheme } = useTheme();
+  const { mode, setMode } = useMode();
+
+  const [hintDismissed, setHintDismissed] = useState(true);
+  useEffect(() => {
+    setHintDismissed(localStorage.getItem("hint-dismissed") === "true");
+  }, []);
+
+  const isAdvanced = mode === "advanced";
 
   // Clean up cooldown interval on unmount
   useEffect(() => {
@@ -134,6 +169,18 @@ export default function Home() {
 
   const handleSignOut = () => {
     window.location.href = "/api/auth/logout";
+  };
+
+  const handleStartOver = () => {
+    setPartner(emptyCompany());
+    setCustomer(emptyCompany());
+    setPartnerRole("User-RO");
+    setCustomerRole("User-RO");
+    setPortalRole("User-RO");
+    setPartnerEnabled(true);
+    setCustomerEnabled(true);
+    setResults(null);
+    setError(null);
   };
 
   const handleRandomize = (role: "partner" | "customer") => {
@@ -168,25 +215,37 @@ export default function Home() {
   };
 
   const handleSubmit = async () => {
-    if (loading) return; // prevent double-click
+    if (loading) return;
     setLoading(true);
     setError(null);
     setResults(null);
 
+    const activePartner = isAdvanced && !partnerEnabled ? null : partner;
+    const activeCustomer = isAdvanced && !customerEnabled ? null : customer;
+
     try {
       const idempotencyKey = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+      const payload: Record<string, any> = {
+        partner: activePartner,
+        customer: activeCustomer,
+        portalId,
+      };
+
+      if (isAdvanced) {
+        if (activePartner) payload.partnerRole = partnerRole;
+        if (activeCustomer) payload.customerRole = customerRole;
+      } else {
+        payload.portalRole = portalRole;
+      }
+
       const res = await fetch("/api/create", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "x-idempotency-key": idempotencyKey,
         },
-        body: JSON.stringify({
-          partner,
-          customer,
-          portalId,
-          portalRole,
-        }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Something went wrong");
@@ -211,13 +270,30 @@ export default function Home() {
   const updateCustomerContact = (patch: Partial<ContactFields>) =>
     setCustomer((c) => ({ ...c, contact: { ...c.contact, ...patch } }));
 
-  const isValid =
-    partner.name &&
-    partner.contact.email &&
-    customer.name &&
-    customer.contact.email;
+  const isValid = isAdvanced
+    ? (partnerEnabled ? partner.name && partner.contact.email : true) &&
+      (customerEnabled ? customer.name && customer.contact.email : true) &&
+      (partnerEnabled || customerEnabled)
+    : partner.name && partner.contact.email && customer.name && customer.contact.email;
 
-  if (authLoading) {
+  const submitLabel = isAdvanced
+    ? partnerEnabled && customerEnabled
+      ? "Create partner + customer"
+      : partnerEnabled
+        ? "Create partner"
+        : customerEnabled
+          ? "Create customer"
+          : "Create entities"
+    : "Create all entities";
+
+  const subtitleText = isAdvanced
+    ? partnerEnabled && customerEnabled
+      ? "Creates selected entities and links them with a Parent Company association."
+      : "Creates a single entity (company + contact)."
+    : "Creates a partner company + contact, a customer company + contact, and links them with a Parent Company association.";
+
+  // Suppress render until mode is resolved from localStorage
+  if (authLoading || mode === null) {
     return (
       <main className="min-h-screen flex items-center justify-center">
         <p className="text-sm text-[hsl(var(--muted-foreground))]">Loading...</p>
@@ -229,7 +305,7 @@ export default function Home() {
     <main id="main-content" className="min-h-screen flex items-start justify-center px-4 py-12 md:py-20">
       <div className="w-full max-w-2xl">
         {/* Header */}
-        <div className="animate-in mb-10">
+        <div className="animate-in mb-6">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-3">
               <div className="w-2 h-2 rounded-full bg-[hsl(var(--accent))]" />
@@ -243,10 +319,24 @@ export default function Home() {
             Create test entities
           </h1>
           <p className="text-[hsl(var(--muted-foreground))] mt-2 text-sm leading-relaxed">
-            Creates a partner company + contact, a customer company + contact,
-            and links them with a Parent Company association.
+            {subtitleText}
           </p>
         </div>
+
+        {/* Mode Toggle */}
+        {loggedIn && (
+          <div className="animate-in mb-6">
+            <SegmentedControl
+              value={mode}
+              onChange={setMode}
+              disabled={loading}
+              options={[
+                { value: "simple", label: "Simple" },
+                { value: "advanced", label: "Advanced" },
+              ]}
+            />
+          </div>
+        )}
 
         {/* Auth */}
         {!loggedIn ? (
@@ -289,50 +379,40 @@ export default function Home() {
               <Section
                 title="Partner"
                 badge="type = PARTNER"
+                showCheckbox={isAdvanced}
+                checked={partnerEnabled}
+                onCheckedChange={setPartnerEnabled}
+                disabled={!partnerEnabled && isAdvanced}
                 action={
-                  <button
-                    onClick={() => handleRandomize("partner")}
-                    className="text-xs px-2.5 py-1 rounded-md font-button min-h-[44px] font-medium transition-all
-                      bg-[hsl(var(--muted))] border border-[hsl(var(--border))]
-                      text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] hover:border-[hsl(var(--accent))]"
-                  >
-                    Randomize
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {isAdvanced && (
+                      <RoleSelect
+                        value={partnerRole}
+                        onChange={setPartnerRole}
+                        disabled={!partnerEnabled}
+                      />
+                    )}
+                    {(!isAdvanced || partnerEnabled) && (
+                      <button
+                        onClick={() => handleRandomize("partner")}
+                        className="text-xs px-2.5 py-1 rounded-md font-button min-h-[44px] font-medium transition-all
+                          bg-[hsl(var(--muted))] border border-[hsl(var(--border))]
+                          text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] hover:border-[hsl(var(--accent))]"
+                      >
+                        Randomize
+                      </button>
+                    )}
+                  </div>
                 }
               >
-                <div className="grid grid-cols-2 gap-3">
-                  <Input
-                    label="Company name"
-                    value={partner.name}
-                    onChange={(v) => updatePartner({ name: v })}
-                    placeholder="Acme Corp"
-                  />
-                  <Input
-                    label="Domain"
-                    value={partner.domain}
-                    onChange={(v) => updatePartner({ domain: v })}
-                    placeholder="acme.com"
-                  />
-                </div>
-                <div className="grid grid-cols-3 gap-3 mt-3">
-                  <Input
-                    label="First name"
-                    value={partner.contact.firstname}
-                    onChange={(v) => updatePartnerContact({ firstname: v })}
-                  />
-                  <Input
-                    label="Last name"
-                    value={partner.contact.lastname}
-                    onChange={(v) => updatePartnerContact({ lastname: v })}
-                  />
-                  <Input
-                    label="Email"
-                    value={partner.contact.email}
-                    onChange={(v) => updatePartnerContact({ email: v })}
-                    type="email"
-                    mono
-                  />
-                </div>
+                <EntityFields
+                  company={partner}
+                  onCompanyChange={updatePartner}
+                  onContactChange={updatePartnerContact}
+                  disabled={isAdvanced && !partnerEnabled}
+                  namePlaceholder="Acme Corp"
+                  domainPlaceholder="acme.com"
+                />
               </Section>
             </div>
 
@@ -341,75 +421,104 @@ export default function Home() {
               <Section
                 title="Customer"
                 badge="type = CUSTOMER"
+                showCheckbox={isAdvanced}
+                checked={customerEnabled}
+                onCheckedChange={setCustomerEnabled}
+                disabled={!customerEnabled && isAdvanced}
                 action={
-                  <button
-                    onClick={() => handleRandomize("customer")}
-                    className="text-xs px-2.5 py-1 rounded-md font-button min-h-[44px] font-medium transition-all
-                      bg-[hsl(var(--muted))] border border-[hsl(var(--border))]
-                      text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] hover:border-[hsl(var(--accent))]"
-                  >
-                    Randomize
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {isAdvanced && (
+                      <RoleSelect
+                        value={customerRole}
+                        onChange={setCustomerRole}
+                        disabled={!customerEnabled}
+                      />
+                    )}
+                    {(!isAdvanced || customerEnabled) && (
+                      <button
+                        onClick={() => handleRandomize("customer")}
+                        className="text-xs px-2.5 py-1 rounded-md font-button min-h-[44px] font-medium transition-all
+                          bg-[hsl(var(--muted))] border border-[hsl(var(--border))]
+                          text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] hover:border-[hsl(var(--accent))]"
+                      >
+                        Randomize
+                      </button>
+                    )}
+                  </div>
                 }
               >
-                <div className="grid grid-cols-2 gap-3">
-                  <Input
-                    label="Company name"
-                    value={customer.name}
-                    onChange={(v) => updateCustomer({ name: v })}
-                    placeholder="Widget Inc"
-                  />
-                  <Input
-                    label="Domain"
-                    value={customer.domain}
-                    onChange={(v) => updateCustomer({ domain: v })}
-                    placeholder="widget.io"
-                  />
-                </div>
-                <div className="grid grid-cols-3 gap-3 mt-3">
-                  <Input
-                    label="First name"
-                    value={customer.contact.firstname}
-                    onChange={(v) => updateCustomerContact({ firstname: v })}
-                  />
-                  <Input
-                    label="Last name"
-                    value={customer.contact.lastname}
-                    onChange={(v) => updateCustomerContact({ lastname: v })}
-                  />
-                  <Input
-                    label="Email"
-                    value={customer.contact.email}
-                    onChange={(v) => updateCustomerContact({ email: v })}
-                    type="email"
-                    mono
-                  />
-                </div>
+                <EntityFields
+                  company={customer}
+                  onCompanyChange={updateCustomer}
+                  onContactChange={updateCustomerContact}
+                  disabled={isAdvanced && !customerEnabled}
+                  namePlaceholder="Widget Inc"
+                  domainPlaceholder="widget.io"
+                />
               </Section>
             </div>
 
+            {/* Portal Role (Simple mode only) */}
+            {!isAdvanced && (
+              <div className="animate-in animate-in-delay-3">
+                <Section title="Portal Role">
+                  <div>
+                    <label className="block text-[14px] font-medium text-[hsl(var(--muted-foreground))] mb-1.5">
+                      Role assigned to both contacts
+                    </label>
+                    <select
+                      value={portalRole}
+                      onChange={(e) => setPortalRole(e.target.value)}
+                      className="w-full px-3 h-[50px] rounded-[5px] text-[16px]
+                        bg-[hsl(var(--card))] border border-[hsl(var(--border))]
+                        text-[hsl(var(--foreground))] transition-colors"
+                    >
+                      <option value="Admin-RW">Administrator</option>
+                      <option value="User-RW">User - Read &amp; Write</option>
+                      <option value="User-RO">User - Read Only</option>
+                    </select>
+                  </div>
+                </Section>
+              </div>
+            )}
 
-            {/* Portal Role */}
-            <div className="animate-in animate-in-delay-3">
-              <Section title="Portal Role">
-                <div>
-                  <label className="block text-[14px] font-medium text-[hsl(var(--muted-foreground))] mb-1.5">
-                    Role assigned to both contacts
-                  </label>
-                  <select
-                    value={portalRole}
-                    onChange={(e) => setPortalRole(e.target.value)}
-                    className="w-full px-3 h-[50px] rounded-[5px] text-[16px]
-                      bg-[hsl(var(--card))] border border-[hsl(var(--border))]
-                      text-[hsl(var(--foreground))] transition-colors"
-                  >
-                    <option value="Admin-RW">Administrator</option>
-                    <option value="User-RW">User - Read &amp; Write</option>
-                    <option value="User-RO">User - Read Only</option>
-                  </select>
-                </div>
-              </Section>
-            </div>
+            {/* Association Status Indicator (Advanced mode) */}
+            {isAdvanced && (
+              <div className="animate-in flex items-center gap-2 mb-4 px-1">
+                <div className={`w-1.5 h-1.5 rounded-full ${
+                  partnerEnabled && customerEnabled
+                    ? "bg-[hsl(var(--success))]"
+                    : "bg-[hsl(var(--muted-foreground))]"
+                }`} />
+                <span className={`text-xs font-mono ${
+                  partnerEnabled && customerEnabled
+                    ? "text-[hsl(var(--success))]"
+                    : "text-[hsl(var(--muted-foreground))]"
+                }`}>
+                  {partnerEnabled && customerEnabled
+                    ? "Partner-Customer association will be created"
+                    : "No association — single entity mode"}
+                </span>
+              </div>
+            )}
+
+            {/* First-visit hint (Simple mode, not dismissed) */}
+            {!isAdvanced && !hintDismissed && (
+              <div className="animate-in flex items-center justify-between mb-4 px-3 py-2 rounded-lg bg-[hsl(var(--muted))] border border-[hsl(var(--border))]">
+                <span className="text-xs text-[hsl(var(--muted-foreground))]">
+                  Need to create just one entity? Try Advanced mode.
+                </span>
+                <button
+                  onClick={() => {
+                    setHintDismissed(true);
+                    localStorage.setItem("hint-dismissed", "true");
+                  }}
+                  className="text-xs font-button min-h-[44px] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] transition-colors ml-2"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
 
             {/* Submit */}
             <button
@@ -423,12 +532,12 @@ export default function Home() {
                 ? "Creating entities..."
                 : cooldown > 0
                   ? `Retry in ${cooldown}s`
-                  : "Create all entities"}
+                  : submitLabel}
             </button>
 
             {/* Error */}
             {error && (
-              <div className="mt-4 p-4 rounded-lg bg-[hsl(var(--destructive))]/10 border border-[hsl(var(--destructive))]/20">
+              <div className="mt-4 p-4 rounded-lg bg-[hsl(var(--destructive))]/10 border border-[hsl(var(--destructive))]/20" role="alert">
                 <p className="text-sm text-[hsl(var(--destructive))] font-mono">{error}</p>
               </div>
             )}
@@ -442,31 +551,9 @@ export default function Home() {
                     Created successfully
                   </span>
                 </div>
-                <div className="space-y-2">
-                  {results.map((r, i) => (
-                    <a
-                      key={i}
-                      href={r.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center justify-between p-3 rounded-lg
-                        bg-[hsl(var(--card))] border border-[hsl(var(--border))]
-                        hover:border-[hsl(var(--accent))] hover:shadow-md transition-all group"
-                    >
-                      <div>
-                        <span className="text-xs font-mono text-[hsl(var(--muted-foreground))] uppercase">
-                          {r.type}
-                        </span>
-                        <p className="text-sm font-medium">{r.name}</p>
-                      </div>
-                      <span className="text-xs font-mono text-[hsl(var(--muted-foreground))] group-hover:text-[hsl(var(--accent))] transition-colors">
-                        {r.id} &rarr;
-                      </span>
-                    </a>
-                  ))}
-                </div>
+                <ResultsDisplay results={results} />
                 <button
-                  onClick={handleSignOut}
+                  onClick={handleStartOver}
                   className="mt-6 w-full min-h-[44px] py-3 rounded-pill font-button font-semibold text-sm uppercase tracking-wide transition-all
                     bg-[hsl(var(--muted))] border border-[hsl(var(--border))]
                     text-[hsl(var(--foreground))] hover:border-[hsl(var(--accent))]"
@@ -484,6 +571,204 @@ export default function Home() {
 
 /* Reusable components */
 
+function ResultsDisplay({ results }: { results: CreatedEntity[] }) {
+  const partnerResults = results.filter(r => r.type.startsWith("Partner"));
+  const customerResults = results.filter(r => r.type.startsWith("Customer"));
+  const associationResult = results.find(r => r.type === "Association");
+  const hasPartner = partnerResults.length > 0;
+  const hasCustomer = customerResults.length > 0;
+
+  return (
+    <div className="space-y-4">
+      {hasPartner && (
+        <div>
+          <span className="text-[10px] font-mono uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-2 block">
+            Partner
+          </span>
+          <div className="space-y-2">
+            {partnerResults.map((r, i) => (
+              <ResultRow key={i} entity={r} />
+            ))}
+          </div>
+        </div>
+      )}
+      {hasCustomer && (
+        <div>
+          <span className="text-[10px] font-mono uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-2 block">
+            Customer
+          </span>
+          <div className="space-y-2">
+            {customerResults.map((r, i) => (
+              <ResultRow key={i} entity={r} />
+            ))}
+          </div>
+        </div>
+      )}
+      {/* Association status */}
+      <div className="flex items-center gap-2 pt-2">
+        <div className={`w-1.5 h-1.5 rounded-full ${
+          associationResult ? "bg-[hsl(var(--success))]" : "bg-[hsl(var(--muted-foreground))]"
+        }`} />
+        <span className={`text-xs font-mono ${
+          associationResult ? "text-[hsl(var(--success))]" : "text-[hsl(var(--muted-foreground))]"
+        }`}>
+          {associationResult
+            ? `Association: created (${associationResult.name})`
+            : "Association: not created — single entity mode"}
+        </span>
+      </div>
+      {associationResult && (
+        <ResultRow entity={associationResult} />
+      )}
+    </div>
+  );
+}
+
+function ResultRow({ entity }: { entity: CreatedEntity }) {
+  return (
+    <a
+      href={entity.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="flex items-center justify-between p-3 rounded-lg
+        bg-[hsl(var(--card))] border border-[hsl(var(--border))]
+        hover:border-[hsl(var(--accent))] hover:shadow-md transition-all group cursor-pointer"
+    >
+      <div>
+        <span className="text-xs font-mono text-[hsl(var(--muted-foreground))] uppercase">
+          {entity.type}
+        </span>
+        <p className="text-sm font-medium">{entity.name}</p>
+      </div>
+      <span className="text-xs font-mono text-[hsl(var(--muted-foreground))] group-hover:text-[hsl(var(--accent))] transition-colors">
+        {entity.id} &rarr;
+      </span>
+    </a>
+  );
+}
+
+function EntityFields({
+  company,
+  onCompanyChange,
+  onContactChange,
+  disabled,
+  namePlaceholder,
+  domainPlaceholder,
+}: {
+  company: CompanyFields;
+  onCompanyChange: (patch: Partial<CompanyFields>) => void;
+  onContactChange: (patch: Partial<ContactFields>) => void;
+  disabled?: boolean;
+  namePlaceholder: string;
+  domainPlaceholder: string;
+}) {
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-3">
+        <Input
+          label="Company name"
+          value={company.name}
+          onChange={(v) => onCompanyChange({ name: v })}
+          placeholder={namePlaceholder}
+          disabled={disabled}
+        />
+        <Input
+          label="Domain"
+          value={company.domain}
+          onChange={(v) => onCompanyChange({ domain: v })}
+          placeholder={domainPlaceholder}
+          disabled={disabled}
+        />
+      </div>
+      <div className="grid grid-cols-3 gap-3 mt-3">
+        <Input
+          label="First name"
+          value={company.contact.firstname}
+          onChange={(v) => onContactChange({ firstname: v })}
+          disabled={disabled}
+        />
+        <Input
+          label="Last name"
+          value={company.contact.lastname}
+          onChange={(v) => onContactChange({ lastname: v })}
+          disabled={disabled}
+        />
+        <Input
+          label="Email"
+          value={company.contact.email}
+          onChange={(v) => onContactChange({ email: v })}
+          type="email"
+          mono
+          disabled={disabled}
+        />
+      </div>
+    </>
+  );
+}
+
+function SegmentedControl<T extends string>({
+  value,
+  onChange,
+  options,
+  disabled,
+}: {
+  value: T;
+  onChange: (v: T) => void;
+  options: { value: T; label: string }[];
+  disabled?: boolean;
+}) {
+  return (
+    <div
+      className={`flex w-full rounded-pill bg-[hsl(var(--muted))] p-1 ${disabled ? "opacity-50 pointer-events-none" : ""}`}
+      role="radiogroup"
+      aria-label="Mode selection"
+    >
+      {options.map((opt) => (
+        <button
+          key={opt.value}
+          role="radio"
+          aria-checked={value === opt.value}
+          onClick={() => onChange(opt.value)}
+          disabled={disabled}
+          className={`flex-1 min-h-[44px] rounded-pill font-button text-xs uppercase tracking-wide transition-all
+            ${value === opt.value
+              ? "bg-[hsl(var(--card))] border border-[hsl(var(--border))] shadow-sm text-[hsl(var(--foreground))]"
+              : "text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"
+            }`}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function RoleSelect({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      disabled={disabled}
+      className="h-[44px] px-3 text-xs font-mono rounded-md
+        bg-[hsl(var(--muted))] border border-[hsl(var(--border))]
+        text-[hsl(var(--foreground))] transition-colors
+        disabled:opacity-50 disabled:cursor-not-allowed"
+    >
+      <option value="Admin-RW">Administrator</option>
+      <option value="User-RW">Read &amp; Write</option>
+      <option value="User-RO">Read Only</option>
+    </select>
+  );
+}
+
 function ThemeToggle({ theme, onCycle }: { theme: Theme; onCycle: () => void }) {
   return (
     <button
@@ -495,12 +780,10 @@ function ThemeToggle({ theme, onCycle }: { theme: Theme; onCycle: () => void }) 
         hover:text-[hsl(var(--foreground))] hover:border-[hsl(var(--accent))] transition-colors"
     >
       {theme === "dark" ? (
-        /* Moon icon */
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
         </svg>
       ) : theme === "light" ? (
-        /* Sun icon */
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="12" cy="12" r="5" />
           <line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" />
@@ -509,7 +792,6 @@ function ThemeToggle({ theme, onCycle }: { theme: Theme; onCycle: () => void }) 
           <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
         </svg>
       ) : (
-        /* Monitor/system icon */
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <rect x="2" y="3" width="20" height="14" rx="2" ry="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" />
         </svg>
@@ -523,16 +805,42 @@ function Section({
   badge,
   action,
   children,
+  showCheckbox,
+  checked,
+  onCheckedChange,
+  disabled,
 }: {
   title: string;
   badge?: string;
   action?: React.ReactNode;
   children: React.ReactNode;
+  showCheckbox?: boolean;
+  checked?: boolean;
+  onCheckedChange?: (checked: boolean) => void;
+  disabled?: boolean;
 }) {
   return (
-    <div className="mb-6 p-5 rounded-lg shadow-sm bg-[hsl(var(--card))] border border-[hsl(var(--border))]">
+    <div
+      className={`mb-6 p-5 rounded-lg shadow-sm bg-[hsl(var(--card))] transition-all duration-200
+        ${disabled
+          ? "opacity-50 border border-dashed border-[hsl(var(--border))]"
+          : "border border-[hsl(var(--border))]"
+        }`}
+      aria-disabled={disabled || undefined}
+    >
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
+          {showCheckbox ? (
+            <input
+              type="checkbox"
+              checked={checked}
+              onChange={(e) => onCheckedChange?.(e.target.checked)}
+              className="w-4 h-4 rounded border-[hsl(var(--border))] accent-[hsl(var(--primary))] cursor-pointer"
+              aria-label={`Enable ${title}`}
+            />
+          ) : (
+            <div className="w-2 h-2 rounded-full bg-[hsl(var(--accent))]" />
+          )}
           <h2 className="text-sm font-semibold tracking-tight font-heading text-[hsl(var(--card-foreground))]">{title}</h2>
           {badge && (
             <span className="text-[10px] font-mono px-2 py-0.5 rounded-pill bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))] border border-[hsl(var(--border))]">
@@ -542,7 +850,9 @@ function Section({
         </div>
         {action}
       </div>
-      {children}
+      <div className={disabled ? "pointer-events-none" : ""}>
+        {children}
+      </div>
     </div>
   );
 }
@@ -554,6 +864,7 @@ function Input({
   type = "text",
   placeholder,
   mono,
+  disabled,
 }: {
   label: string;
   value: string;
@@ -561,6 +872,7 @@ function Input({
   type?: string;
   placeholder?: string;
   mono?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <div>
@@ -572,10 +884,13 @@ function Input({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
+        disabled={disabled}
+        tabIndex={disabled ? -1 : undefined}
         className={`w-full px-3 h-[50px] rounded-[5px] text-[16px]
           bg-[hsl(var(--card))] border border-[hsl(var(--border))]
           text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))]/40
-          transition-colors ${mono ? "font-mono text-xs" : ""}`}
+          transition-colors disabled:opacity-50 disabled:cursor-not-allowed
+          ${mono ? "font-mono text-xs" : ""}`}
       />
     </div>
   );
