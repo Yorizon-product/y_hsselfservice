@@ -296,7 +296,7 @@ export default function Home() {
   if (authLoading || mode === null) {
     return (
       <main className="min-h-screen flex items-center justify-center">
-        <p className="text-sm text-[hsl(var(--muted-foreground))]">Loading...</p>
+        <p className="text-sm text-[var(--muted-foreground)]">Loading...</p>
       </main>
     );
   }
@@ -308,17 +308,17 @@ export default function Home() {
         <div className="animate-in mb-6">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-3">
-              <div className="w-2 h-2 rounded-full bg-[hsl(var(--accent))]" />
-              <span className="text-xs font-mono uppercase tracking-widest text-[hsl(var(--muted-foreground))]">
+              <div className="w-2 h-2 rounded-full bg-[var(--accent)]" />
+              <span className="text-xs font-mono uppercase tracking-widest text-[var(--muted-foreground)]">
                 HubSpot Entity Creator · v{APP_VERSION}
               </span>
             </div>
             <ThemeToggle theme={theme} onCycle={cycleTheme} />
           </div>
-          <h1 className="text-2xl md:text-3xl font-bold tracking-tight font-heading text-[hsl(var(--card-foreground))]">
+          <h1 className="text-2xl md:text-3xl font-bold tracking-tight font-heading text-[var(--card-foreground)]">
             Create test entities
           </h1>
-          <p className="text-[hsl(var(--muted-foreground))] mt-2 text-sm leading-relaxed">
+          <p className="text-[var(--muted-foreground)] mt-2 text-sm leading-relaxed">
             {subtitleText}
           </p>
         </div>
@@ -342,14 +342,14 @@ export default function Home() {
         {!loggedIn ? (
           <div className="animate-in animate-in-delay-1">
             <Section title="Connect to HubSpot">
-              <p className="text-sm text-[hsl(var(--muted-foreground))] mb-4">
+              <p className="text-sm text-[var(--muted-foreground)] mb-4">
                 Sign in with your HubSpot account to get started. This grants
                 the tool permission to create entities in your portal.
               </p>
               <a
                 href="/api/auth/install"
                 className="block w-full min-h-[44px] py-2.5 rounded-pill font-button font-semibold text-sm uppercase tracking-wide transition-all text-center
-                  bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] hover:opacity-90"
+                  bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90"
               >
                 Connect to HubSpot
               </a>
@@ -358,17 +358,17 @@ export default function Home() {
         ) : (
           <>
             {/* User indicator */}
-            <div className="animate-in flex items-center justify-between mb-6 px-3 py-2 rounded-lg bg-[hsl(var(--card))] border border-[hsl(var(--border))]">
+            <div className="animate-in flex items-center justify-between mb-6 px-3 py-2 rounded-lg bg-[var(--card)] border border-[var(--border)]">
               <div className="flex items-center gap-2">
-                <div className="w-1.5 h-1.5 rounded-full bg-[hsl(var(--success))]" />
-                <span className="text-xs font-mono text-[hsl(var(--muted-foreground))]">
+                <div className="w-1.5 h-1.5 rounded-full bg-[var(--success)]" />
+                <span className="text-xs font-mono text-[var(--muted-foreground)]">
                   {userEmail || "Connected"}
                   {portalId ? ` · Portal ${portalId}` : ""}
                 </span>
               </div>
               <button
                 onClick={handleSignOut}
-                className="text-xs font-button min-h-[44px] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] transition-colors"
+                className="text-xs font-button min-h-[44px] text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors"
               >
                 Disconnect
               </button>
@@ -396,8 +396,8 @@ export default function Home() {
                       <button
                         onClick={() => handleRandomize("partner")}
                         className="text-xs px-2.5 py-1 rounded-md font-button min-h-[44px] font-medium transition-all
-                          bg-[hsl(var(--muted))] border border-[hsl(var(--border))]
-                          text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] hover:border-[hsl(var(--accent))]"
+                          bg-[var(--muted)] border border-[var(--border)]
+                          text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:border-[var(--accent)]"
                       >
                         Randomize
                       </button>
@@ -438,8 +438,8 @@ export default function Home() {
                       <button
                         onClick={() => handleRandomize("customer")}
                         className="text-xs px-2.5 py-1 rounded-md font-button min-h-[44px] font-medium transition-all
-                          bg-[hsl(var(--muted))] border border-[hsl(var(--border))]
-                          text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] hover:border-[hsl(var(--accent))]"
+                          bg-[var(--muted)] border border-[var(--border)]
+                          text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:border-[var(--accent)]"
                       >
                         Randomize
                       </button>
@@ -463,15 +463,15 @@ export default function Home() {
               <div className="animate-in animate-in-delay-3">
                 <Section title="Portal Role">
                   <div>
-                    <label className="block text-[14px] font-medium text-[hsl(var(--muted-foreground))] mb-1.5">
+                    <label className="block text-[14px] font-medium text-[var(--muted-foreground)] mb-1.5">
                       Role assigned to both contacts
                     </label>
                     <select
                       value={portalRole}
                       onChange={(e) => setPortalRole(e.target.value)}
                       className="w-full px-3 h-[50px] rounded-[5px] text-[16px]
-                        bg-[hsl(var(--card))] border border-[hsl(var(--border))]
-                        text-[hsl(var(--foreground))] transition-colors"
+                        bg-[var(--card)] border border-[var(--border)]
+                        text-[var(--foreground)] transition-colors"
                     >
                       <option value="Admin-RW">Administrator</option>
                       <option value="User-RW">User - Read &amp; Write</option>
@@ -487,13 +487,13 @@ export default function Home() {
               <div className="animate-in flex items-center gap-2 mb-4 px-1">
                 <div className={`w-1.5 h-1.5 rounded-full ${
                   partnerEnabled && customerEnabled
-                    ? "bg-[hsl(var(--success))]"
-                    : "bg-[hsl(var(--muted-foreground))]"
+                    ? "bg-[var(--success)]"
+                    : "bg-[var(--muted-foreground)]"
                 }`} />
                 <span className={`text-xs font-mono ${
                   partnerEnabled && customerEnabled
-                    ? "text-[hsl(var(--success))]"
-                    : "text-[hsl(var(--muted-foreground))]"
+                    ? "text-[var(--success)]"
+                    : "text-[var(--muted-foreground)]"
                 }`}>
                   {partnerEnabled && customerEnabled
                     ? "Partner-Customer association will be created"
@@ -504,8 +504,8 @@ export default function Home() {
 
             {/* First-visit hint (Simple mode, not dismissed) */}
             {!isAdvanced && !hintDismissed && (
-              <div className="animate-in flex items-center justify-between mb-4 px-3 py-2 rounded-lg bg-[hsl(var(--muted))] border border-[hsl(var(--border))]">
-                <span className="text-xs text-[hsl(var(--muted-foreground))]">
+              <div className="animate-in flex items-center justify-between mb-4 px-3 py-2 rounded-lg bg-[var(--muted)] border border-[var(--border)]">
+                <span className="text-xs text-[var(--muted-foreground)]">
                   Need to create just one entity? Try Advanced mode.
                 </span>
                 <button
@@ -513,7 +513,7 @@ export default function Home() {
                     setHintDismissed(true);
                     localStorage.setItem("hint-dismissed", "true");
                   }}
-                  className="text-xs font-button min-h-[44px] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] transition-colors ml-2"
+                  className="text-xs font-button min-h-[44px] text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors ml-2"
                 >
                   Dismiss
                 </button>
@@ -525,7 +525,7 @@ export default function Home() {
               onClick={handleSubmit}
               disabled={!isValid || loading || cooldown > 0}
               className="w-full min-h-[44px] py-3 rounded-pill font-button font-semibold text-sm uppercase tracking-wide transition-all
-                bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] hover:opacity-90
+                bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90
                 disabled:opacity-30 disabled:cursor-not-allowed"
             >
               {loading
@@ -537,8 +537,8 @@ export default function Home() {
 
             {/* Error */}
             {error && (
-              <div className="mt-4 p-4 rounded-lg bg-[hsl(var(--destructive))]/10 border border-[hsl(var(--destructive))]/20" role="alert">
-                <p className="text-sm text-[hsl(var(--destructive))] font-mono">{error}</p>
+              <div className="mt-4 p-4 rounded-lg bg-[var(--destructive)]/10 border border-[var(--destructive)]/20" role="alert">
+                <p className="text-sm text-[var(--destructive)] font-mono">{error}</p>
               </div>
             )}
 
@@ -546,8 +546,8 @@ export default function Home() {
             {results && (
               <div className="mt-6 animate-in">
                 <div className="flex items-center gap-2 mb-3">
-                  <div className="w-1.5 h-1.5 rounded-full bg-[hsl(var(--success))]" />
-                  <span className="text-xs font-mono uppercase tracking-widest text-[hsl(var(--success))]">
+                  <div className="w-1.5 h-1.5 rounded-full bg-[var(--success)]" />
+                  <span className="text-xs font-mono uppercase tracking-widest text-[var(--success)]">
                     Created successfully
                   </span>
                 </div>
@@ -555,8 +555,8 @@ export default function Home() {
                 <button
                   onClick={handleStartOver}
                   className="mt-6 w-full min-h-[44px] py-3 rounded-pill font-button font-semibold text-sm uppercase tracking-wide transition-all
-                    bg-[hsl(var(--muted))] border border-[hsl(var(--border))]
-                    text-[hsl(var(--foreground))] hover:border-[hsl(var(--accent))]"
+                    bg-[var(--muted)] border border-[var(--border)]
+                    text-[var(--foreground)] hover:border-[var(--accent)]"
                 >
                   Start over
                 </button>
@@ -582,7 +582,7 @@ function ResultsDisplay({ results }: { results: CreatedEntity[] }) {
     <div className="space-y-4">
       {hasPartner && (
         <div>
-          <span className="text-[10px] font-mono uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-2 block">
+          <span className="text-[10px] font-mono uppercase tracking-widest text-[var(--muted-foreground)] mb-2 block">
             Partner
           </span>
           <div className="space-y-2">
@@ -594,7 +594,7 @@ function ResultsDisplay({ results }: { results: CreatedEntity[] }) {
       )}
       {hasCustomer && (
         <div>
-          <span className="text-[10px] font-mono uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-2 block">
+          <span className="text-[10px] font-mono uppercase tracking-widest text-[var(--muted-foreground)] mb-2 block">
             Customer
           </span>
           <div className="space-y-2">
@@ -607,10 +607,10 @@ function ResultsDisplay({ results }: { results: CreatedEntity[] }) {
       {/* Association status */}
       <div className="flex items-center gap-2 pt-2">
         <div className={`w-1.5 h-1.5 rounded-full ${
-          associationResult ? "bg-[hsl(var(--success))]" : "bg-[hsl(var(--muted-foreground))]"
+          associationResult ? "bg-[var(--success)]" : "bg-[var(--muted-foreground)]"
         }`} />
         <span className={`text-xs font-mono ${
-          associationResult ? "text-[hsl(var(--success))]" : "text-[hsl(var(--muted-foreground))]"
+          associationResult ? "text-[var(--success)]" : "text-[var(--muted-foreground)]"
         }`}>
           {associationResult
             ? `Association: created (${associationResult.name})`
@@ -631,16 +631,16 @@ function ResultRow({ entity }: { entity: CreatedEntity }) {
       target="_blank"
       rel="noopener noreferrer"
       className="flex items-center justify-between p-3 rounded-lg
-        bg-[hsl(var(--card))] border border-[hsl(var(--border))]
-        hover:border-[hsl(var(--accent))] hover:shadow-md transition-all group cursor-pointer"
+        bg-[var(--card)] border border-[var(--border)]
+        hover:border-[var(--accent)] hover:shadow-md transition-all group cursor-pointer"
     >
       <div>
-        <span className="text-xs font-mono text-[hsl(var(--muted-foreground))] uppercase">
+        <span className="text-xs font-mono text-[var(--muted-foreground)] uppercase">
           {entity.type}
         </span>
         <p className="text-sm font-medium">{entity.name}</p>
       </div>
-      <span className="text-xs font-mono text-[hsl(var(--muted-foreground))] group-hover:text-[hsl(var(--accent))] transition-colors">
+      <span className="text-xs font-mono text-[var(--muted-foreground)] group-hover:text-[var(--accent)] transition-colors">
         {entity.id} &rarr;
       </span>
     </a>
@@ -719,7 +719,7 @@ function SegmentedControl<T extends string>({
 }) {
   return (
     <div
-      className={`flex w-full rounded-pill bg-[hsl(var(--muted))] p-1 ${disabled ? "opacity-50 pointer-events-none" : ""}`}
+      className={`flex w-full rounded-pill bg-[var(--muted)] p-1 ${disabled ? "opacity-50 pointer-events-none" : ""}`}
       role="radiogroup"
       aria-label="Mode selection"
     >
@@ -732,8 +732,8 @@ function SegmentedControl<T extends string>({
           disabled={disabled}
           className={`flex-1 min-h-[44px] rounded-pill font-button text-xs uppercase tracking-wide transition-all
             ${value === opt.value
-              ? "bg-[hsl(var(--card))] border border-[hsl(var(--border))] shadow-sm text-[hsl(var(--foreground))]"
-              : "text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"
+              ? "bg-[var(--card)] border border-[var(--border)] shadow-sm text-[var(--foreground)]"
+              : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
             }`}
         >
           {opt.label}
@@ -758,8 +758,8 @@ function RoleSelect({
       onChange={(e) => onChange(e.target.value)}
       disabled={disabled}
       className="h-[44px] px-3 text-xs font-mono rounded-md
-        bg-[hsl(var(--muted))] border border-[hsl(var(--border))]
-        text-[hsl(var(--foreground))] transition-colors
+        bg-[var(--muted)] border border-[var(--border)]
+        text-[var(--foreground)] transition-colors
         disabled:opacity-50 disabled:cursor-not-allowed"
     >
       <option value="Admin-RW">Administrator</option>
@@ -776,8 +776,8 @@ function ThemeToggle({ theme, onCycle }: { theme: Theme; onCycle: () => void }) 
       aria-label={`Theme: ${theme}. Click to cycle.`}
       title={`Theme: ${theme}`}
       className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg
-        border border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))]
-        hover:text-[hsl(var(--foreground))] hover:border-[hsl(var(--accent))] transition-colors"
+        border border-[var(--border)] text-[var(--muted-foreground)]
+        hover:text-[var(--foreground)] hover:border-[var(--accent)] transition-colors"
     >
       {theme === "dark" ? (
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -821,10 +821,10 @@ function Section({
 }) {
   return (
     <div
-      className={`mb-6 p-5 rounded-lg shadow-sm bg-[hsl(var(--card))] transition-all duration-200
+      className={`mb-6 p-5 rounded-lg shadow-sm bg-[var(--card)] transition-all duration-200
         ${disabled
-          ? "opacity-50 border border-dashed border-[hsl(var(--border))]"
-          : "border border-[hsl(var(--border))]"
+          ? "opacity-50 border border-dashed border-[var(--border)]"
+          : "border border-[var(--border)]"
         }`}
       aria-disabled={disabled || undefined}
     >
@@ -835,15 +835,15 @@ function Section({
               type="checkbox"
               checked={checked}
               onChange={(e) => onCheckedChange?.(e.target.checked)}
-              className="w-4 h-4 rounded border-[hsl(var(--border))] accent-[hsl(var(--primary))] cursor-pointer"
+              className="w-4 h-4 rounded border-[var(--border)] accent-[var(--primary)] cursor-pointer"
               aria-label={`Enable ${title}`}
             />
           ) : (
-            <div className="w-2 h-2 rounded-full bg-[hsl(var(--accent))]" />
+            <div className="w-2 h-2 rounded-full bg-[var(--accent)]" />
           )}
-          <h2 className="text-sm font-semibold tracking-tight font-heading text-[hsl(var(--card-foreground))]">{title}</h2>
+          <h2 className="text-sm font-semibold tracking-tight font-heading text-[var(--card-foreground)]">{title}</h2>
           {badge && (
-            <span className="text-[10px] font-mono px-2 py-0.5 rounded-pill bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))] border border-[hsl(var(--border))]">
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded-pill bg-[var(--muted)] text-[var(--muted-foreground)] border border-[var(--border)]">
               {badge}
             </span>
           )}
@@ -876,7 +876,7 @@ function Input({
 }) {
   return (
     <div>
-      <label className="block text-[14px] font-medium text-[hsl(var(--muted-foreground))] mb-1.5">
+      <label className="block text-[14px] font-medium text-[var(--muted-foreground)] mb-1.5">
         {label}
       </label>
       <input
@@ -887,8 +887,8 @@ function Input({
         disabled={disabled}
         tabIndex={disabled ? -1 : undefined}
         className={`w-full px-3 h-[50px] rounded-[5px] text-[16px]
-          bg-[hsl(var(--card))] border border-[hsl(var(--border))]
-          text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))]/40
+          bg-[var(--card)] border border-[var(--border)]
+          text-[var(--foreground)] placeholder:text-[var(--muted-foreground)]/40
           transition-colors disabled:opacity-50 disabled:cursor-not-allowed
           ${mono ? "font-mono text-xs" : ""}`}
       />

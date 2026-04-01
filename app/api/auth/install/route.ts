@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import crypto from "crypto";
 
@@ -10,16 +10,20 @@ const SCOPES = [
   "crm.schemas.companies.read",
 ].join(" ");
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const state = crypto.randomBytes(16).toString("hex");
 
   const session = await getSession();
   session.oauthState = state;
   await session.save();
 
+  // Build redirect URI from request host so preview deployments work
+  const url = new URL(req.url);
+  const redirectUri = process.env.HUBSPOT_REDIRECT_URI || `${url.origin}/api/auth/callback`;
+
   const params = new URLSearchParams({
     client_id: process.env.HUBSPOT_CLIENT_ID!,
-    redirect_uri: process.env.HUBSPOT_REDIRECT_URI!,
+    redirect_uri: redirectUri,
     scope: SCOPES,
     state,
   });
