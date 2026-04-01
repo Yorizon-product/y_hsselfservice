@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
       grant_type: "authorization_code",
       client_id: process.env.HUBSPOT_CLIENT_ID!,
       client_secret: process.env.HUBSPOT_CLIENT_SECRET!,
-      redirect_uri: process.env.HUBSPOT_REDIRECT_URI!,
+      redirect_uri: process.env.HUBSPOT_REDIRECT_URI || `${new URL("/api/auth/callback", req.url).toString()}`,
       code,
     }),
   });

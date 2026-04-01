@@ -1,0 +1,70 @@
+{
+  "header.appName": "HubSpot Entity Creator",
+  "header.title": "Testentitäten erstellen",
+  "header.subtitle.simple": "Erstellt ein Partnerunternehmen + Kontakt, ein Kundenunternehmen + Kontakt und verknüpft sie mit einer Muttergesellschaft-Zuordnung.",
+  "header.subtitle.advanced.both": "Erstellt ausgewählte Entitäten und verknüpft sie mit einer Muttergesellschaft-Zuordnung.",
+  "header.subtitle.advanced.single": "Erstellt eine einzelne Entität (Unternehmen + Kontakt).",
+
+  "auth.connect": "Mit HubSpot verbinden",
+  "auth.connectDescription": "Melde dich mit deinem HubSpot-Konto an. Damit erhält das Tool die Berechtigung, Entitäten in deinem Portal zu erstellen.",
+  "auth.disconnect": "Trennen",
+  "auth.connected": "Verbunden",
+  "auth.portal": "Portal",
+
+  "mode.simple": "Einfach",
+  "mode.advanced": "Erweitert",
+
+  "partner.title": "Partner:in",
+  "partner.badge": "Typ = PARTNER",
+  "customer.title": "Kund:in",
+  "customer.badge": "Typ = KUND:IN",
+  "entity.randomize": "Zufällig",
+  "entity.enable": "Aktivieren",
+
+  "form.companyName": "Firmenname",
+  "form.domain": "Domain",
+  "form.firstName": "Vorname",
+  "form.lastName": "Nachname",
+  "form.email": "E-Mail",
+
+  "role.label": "Beiden Kontakten zugewiesene Rolle",
+  "role.sectionTitle": "Portal-Rolle",
+  "role.admin": "Administrator:in",
+  "role.rw": "Lesen & Schreiben",
+  "role.ro": "Nur Lesen",
+
+  "association.willCreate": "Partner:in-Kund:in-Zuordnung wird erstellt",
+  "association.singleEntity": "Keine Zuordnung — Einzelentitätsmodus",
+
+  "hint.advancedMode": "Nur eine Entität erstellen? Probier den erweiterten Modus.",
+  "hint.dismiss": "Ausblenden",
+
+  "submit.createAll": "Alle Entitäten erstellen",
+  "submit.createPartnerCustomer": "Partner:in + Kund:in erstellen",
+  "submit.createPartner": "Partner:in erstellen",
+  "submit.createCustomer": "Kund:in erstellen",
+  "submit.creating": "Entitäten werden erstellt...",
+  "submit.retryIn": "Erneut in {seconds}s",
+
+  "results.success": "Erfolgreich erstellt",
+  "results.startOver": "Neu beginnen",
+  "results.partner": "Partner:in",
+  "results.customer": "Kund:in",
+  "results.associationCreated": "Zuordnung: erstellt",
+  "results.associationSkipped": "Zuordnung: nicht erstellt — Einzelentitätsmodus",
+
+  "error.sessionExpired": "Deine HubSpot-Sitzung ist abgelaufen. Bitte verbinde dich erneut.",
+  "error.502": "HubSpot ist vorübergehend nicht erreichbar (502). Das Problem liegt auf deren Seite — bitte versuch es gleich nochmal.",
+  "error.503": "HubSpot ist vorübergehend nicht verfügbar (503). Bitte versuch es in Kürze erneut.",
+  "error.rateLimit": "Zu viele Anfragen — HubSpot-Ratenlimit erreicht. Bitte warte, bevor du es erneut versuchst.",
+  "error.nonJson": "HubSpot hat eine unerwartete Antwort zurückgegeben. Deren API hat möglicherweise Probleme — bitte versuch es in Kürze erneut.",
+  "error.generic": "Etwas ist schiefgelaufen",
+
+  "theme.system": "Design: System. Klicken zum Wechseln.",
+  "theme.light": "Design: Hell. Klicken zum Wechseln.",
+  "theme.dark": "Design: Dunkel. Klicken zum Wechseln.",
+
+  "language.switch": "Sprache: Deutsch. Klicken zum Wechseln.",
+
+  "loading": "Laden..."
+}

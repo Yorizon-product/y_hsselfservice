@@ -4,6 +4,9 @@ import { getHubSpotToken, AuthError } from "@/lib/hubspot-token";
 
 const HUBSPOT_API = "https://api.hubapi.com";
 
+const VALID_ROLES = new Set(["Admin-RW", "User-RW", "User-RO"]);
+const DEFAULT_ROLE = "User-RO";
+
 type ContactInput = { firstname: string; lastname: string; email: string };
 type CompanyInput = { name: string; domain: string; contact: ContactInput };
 
@@ -13,6 +16,21 @@ type CreatedEntity = {
   name: string;
   url: string;
 };
+
+function resolveRole(perEntity?: string, shared?: string): string {
+  const role = perEntity ?? shared ?? DEFAULT_ROLE;
+  if (!VALID_ROLES.has(role)) {
+    throw new ValidationError(`Invalid portal role: ${role}. Valid values: Admin-RW, User-RW, User-RO`);
+  }
+  return role;
+}
+
+class ValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ValidationError";
+  }
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -34,25 +52,60 @@ export async function POST(req: NextRequest) {
       customer,
       portalId,
       portalRole,
+      partnerRole,
+      customerRole,
     }: {
-      partner: CompanyInput;
-      customer: CompanyInput;
+      partner: CompanyInput | null;
+      customer: CompanyInput | null;
       portalId: string | null;
-      portalRole: string;
+      portalRole?: string;
+      partnerRole?: string;
+      customerRole?: string;
     } = body;
 
-    if (!partner?.name || !partner?.contact?.email) {
+    // Validate: at least one entity required
+    if (!partner && !customer) {
+      return NextResponse.json(
+        { error: "At least one entity (partner or customer) is required" },
+        { status: 400 }
+      );
+    }
+
+    // Validate: reject mixed role payload shapes
+    if (portalRole && (partnerRole || customerRole)) {
+      return NextResponse.json(
+        { error: "Cannot provide both shared portalRole and per-entity roles. Use one or the other." },
+        { status: 400 }
+      );
+    }
+
+    // Validate entity fields when present
+    if (partner && (!partner.name || !partner.contact?.email)) {
       return NextResponse.json(
         { error: "Partner company name and contact email are required" },
         { status: 400 }
       );
     }
-    if (!customer?.name || !customer?.contact?.email) {
+    if (customer && (!customer.name || !customer.contact?.email)) {
       return NextResponse.json(
         { error: "Customer company name and contact email are required" },
         { status: 400 }
       );
     }
+
+    // Resolve and validate roles
+    let resolvedPartnerRole: string | undefined;
+    let resolvedCustomerRole: string | undefined;
+    try {
+      if (partner) resolvedPartnerRole = resolveRole(partnerRole, portalRole);
+      if (customer) resolvedCustomerRole = resolveRole(customerRole, portalRole);
+    } catch (e) {
+      if (e instanceof ValidationError) {
+        return NextResponse.json({ error: e.message }, { status: 400 });
+      }
+      throw e;
+    }
+
     // Idempotency: reject duplicate submissions within a short window
     const idempotencyKey = req.headers.get("x-idempotency-key");
     if (idempotencyKey && recentKeys.has(idempotencyKey)) {
@@ -67,7 +120,8 @@ export async function POST(req: NextRequest) {
     }
 
     const createdBy = session.userEmail || "unknown";
-    console.log(`[audit] ${createdBy} creating entities: partner="${partner.name}", customer="${customer.name}"`);
+    const operationType = partner && customer ? "both" : partner ? "partner-only" : "customer-only";
+    console.log(`[audit] ${createdBy} creating entities (${operationType}): partner="${partner?.name ?? "—"}", customer="${customer?.name ?? "—"}"`);
 
     const headers = {
       Authorization: `Bearer ${token}`,
@@ -75,7 +129,7 @@ export async function POST(req: NextRequest) {
     };
 
     const created: CreatedEntity[] = [];
-    const createdIds: { type: "companies" | "contacts"; id: string }[] = [];
+    const createdIds: { type: "companies" | "contacts"; id: string; label: string }[] = [];
     const recordUrl = (type: string, id: string) =>
       portalId
         ? `https://app.hubspot.com/contacts/${portalId}/${type}/${id}`
@@ -84,66 +138,87 @@ export async function POST(req: NextRequest) {
     try {
       const noteBody = `Created via HS Self-Service tool by ${createdBy} on ${new Date().toISOString().slice(0, 10)}`;
 
-      // 1. Create partner company
-      const partnerCompany = await createCompany(headers, partner.name, partner.domain, "PARTNER");
-      createdIds.push({ type: "companies", id: partnerCompany.id });
-      await createNote(headers, noteBody, "companies", partnerCompany.id);
-      created.push({
-        type: "Partner Company",
-        id: partnerCompany.id,
-        name: partner.name,
-        url: recordUrl("company", partnerCompany.id),
-      });
+      // 1. Create partner (if requested)
+      if (partner) {
+        const partnerCompany = await createCompany(headers, partner.name, partner.domain, "PARTNER");
+        createdIds.push({ type: "companies", id: partnerCompany.id, label: "partner_company" });
+        await createNote(headers, noteBody, "companies", partnerCompany.id);
+        created.push({
+          type: "Partner Company",
+          id: partnerCompany.id,
+          name: partner.name,
+          url: recordUrl("company", partnerCompany.id),
+        });
 
-      // 2. Create partner contact + associate to company
-      const partnerContact = await createContact(headers, partner.contact, partnerCompany.id, portalRole);
-      createdIds.push({ type: "contacts", id: partnerContact.id });
-      await createNote(headers, noteBody, "contacts", partnerContact.id);
-      created.push({
-        type: "Partner Contact",
-        id: partnerContact.id,
-        name: `${partner.contact.firstname} ${partner.contact.lastname}`.trim() || partner.contact.email,
-        url: recordUrl("contact", partnerContact.id),
-      });
+        const partnerContact = await createContact(headers, partner.contact, partnerCompany.id, resolvedPartnerRole!);
+        createdIds.push({ type: "contacts", id: partnerContact.id, label: "partner_contact" });
+        await createNote(headers, noteBody, "contacts", partnerContact.id);
+        created.push({
+          type: "Partner Contact",
+          id: partnerContact.id,
+          name: `${partner.contact.firstname} ${partner.contact.lastname}`.trim() || partner.contact.email,
+          url: recordUrl("contact", partnerContact.id),
+        });
+      }
 
-      // 3. Create customer company
-      const customerCompany = await createCompany(headers, customer.name, customer.domain, "CUSTOMER");
-      createdIds.push({ type: "companies", id: customerCompany.id });
-      await createNote(headers, noteBody, "companies", customerCompany.id);
-      created.push({
-        type: "Customer Company",
-        id: customerCompany.id,
-        name: customer.name,
-        url: recordUrl("company", customerCompany.id),
-      });
+      // 2. Create customer (if requested)
+      if (customer) {
+        const customerCompany = await createCompany(headers, customer.name, customer.domain, "CUSTOMER");
+        createdIds.push({ type: "companies", id: customerCompany.id, label: "customer_company" });
+        await createNote(headers, noteBody, "companies", customerCompany.id);
+        created.push({
+          type: "Customer Company",
+          id: customerCompany.id,
+          name: customer.name,
+          url: recordUrl("company", customerCompany.id),
+        });
 
-      // 4. Create customer contact + associate to company
-      const customerContact = await createContact(headers, customer.contact, customerCompany.id, portalRole);
-      createdIds.push({ type: "contacts", id: customerContact.id });
-      await createNote(headers, noteBody, "contacts", customerContact.id);
-      created.push({
-        type: "Customer Contact",
-        id: customerContact.id,
-        name: `${customer.contact.firstname} ${customer.contact.lastname}`.trim() || customer.contact.email,
-        url: recordUrl("contact", customerContact.id),
-      });
+        const customerContact = await createContact(headers, customer.contact, customerCompany.id, resolvedCustomerRole!);
+        createdIds.push({ type: "contacts", id: customerContact.id, label: "customer_contact" });
+        await createNote(headers, noteBody, "contacts", customerContact.id);
+        created.push({
+          type: "Customer Contact",
+          id: customerContact.id,
+          name: `${customer.contact.firstname} ${customer.contact.lastname}`.trim() || customer.contact.email,
+          url: recordUrl("contact", customerContact.id),
+        });
+      }
 
-      // 5. Associate partner company <-> customer company with label
-      await associateCompanies(headers, partnerCompany.id, customerCompany.id);
-      created.push({
-        type: "Association",
-        id: `${partnerCompany.id}\u2194${customerCompany.id}`,
-        name: `${partner.name} \u2194 ${customer.name}`,
-        url: recordUrl("company", partnerCompany.id),
-      });
+      // 3. Associate partner <-> customer (only when both present)
+      if (partner && customer) {
+        const partnerCompanyId = createdIds.find(e => e.label === "partner_company")!.id;
+        const customerCompanyId = createdIds.find(e => e.label === "customer_company")!.id;
+        await associateCompanies(headers, partnerCompanyId, customerCompanyId);
+        created.push({
+          type: "Association",
+          id: `${partnerCompanyId}\u2194${customerCompanyId}`,
+          name: `${partner.name} \u2194 ${customer.name}`,
+          url: recordUrl("company", partnerCompanyId),
+        });
+      }
     } catch (stepError: any) {
       // Roll back any entities already created in HubSpot
+      const rolledBackLabels = createdIds.map(e => e.label).reverse();
       console.error(`[create] Step failed, rolling back ${createdIds.length} entities:`, stepError.message);
       await rollbackEntities(headers, createdIds);
-      throw stepError;
+
+      const rolledBackSummary = rolledBackLabels.length > 0
+        ? ` ${rolledBackLabels.map(l => l.replace(/_/g, " ")).join(", ")} ${rolledBackLabels.length === 1 ? "was" : "were"} created but then removed — nothing was saved. You can retry safely.`
+        : "";
+
+      return NextResponse.json(
+        {
+          error: `${stepError.message}${rolledBackSummary}`,
+          rolledBack: rolledBackLabels,
+        },
+        { status: 500 }
+      );
     }
 
-    console.log(`[audit] ${createdBy} created ${created.length} entities: ${created.map(c => `${c.type}(${c.id})`).join(", ")}`);
+    const roleInfo = partnerRole || customerRole
+      ? ` roles: partner=${resolvedPartnerRole ?? "—"}, customer=${resolvedCustomerRole ?? "—"}`
+      : ` role: ${portalRole ?? DEFAULT_ROLE}`;
+    console.log(`[audit] ${createdBy} created ${created.length} entities (${operationType}):${roleInfo} ${created.map(c => `${c.type}(${c.id})`).join(", ")}`);
     return NextResponse.json({ created });
   } catch (e: any) {
     console.error("[create] Error:", e.message);
@@ -251,7 +326,7 @@ async function associateCompanies(
 
 async function rollbackEntities(
   headers: Record<string, string>,
-  entities: { type: "companies" | "contacts"; id: string }[]
+  entities: { type: "companies" | "contacts"; id: string; label: string }[]
 ) {
   // Delete in reverse order (contacts before companies)
   for (const entity of [...entities].reverse()) {
@@ -260,9 +335,9 @@ async function rollbackEntities(
         method: "DELETE",
         headers,
       });
-      console.log(`[rollback] Deleted ${entity.type}/${entity.id}`);
+      console.log(`[rollback] Deleted ${entity.label} (${entity.type}/${entity.id})`);
     } catch (e: any) {
-      console.error(`[rollback] Failed to delete ${entity.type}/${entity.id}:`, e.message);
+      console.error(`[rollback] Failed to delete ${entity.label} (${entity.type}/${entity.id}):`, e.message);
     }
   }
 }

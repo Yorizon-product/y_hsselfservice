@@ -1,0 +1,70 @@
+{
+  "header.appName": "HubSpot Entity Creator",
+  "header.title": "Create test entities",
+  "header.subtitle.simple": "Creates a partner company + contact, a customer company + contact, and links them with a Parent Company association.",
+  "header.subtitle.advanced.both": "Creates selected entities and links them with a Parent Company association.",
+  "header.subtitle.advanced.single": "Creates a single entity (company + contact).",
+
+  "auth.connect": "Connect to HubSpot",
+  "auth.connectDescription": "Sign in with your HubSpot account to get started. This grants the tool permission to create entities in your portal.",
+  "auth.disconnect": "Disconnect",
+  "auth.connected": "Connected",
+  "auth.portal": "Portal",
+
+  "mode.simple": "Simple",
+  "mode.advanced": "Advanced",
+
+  "partner.title": "Partner",
+  "partner.badge": "type = PARTNER",
+  "customer.title": "Customer",
+  "customer.badge": "type = CUSTOMER",
+  "entity.randomize": "Randomize",
+  "entity.enable": "Enable",
+
+  "form.companyName": "Company name",
+  "form.domain": "Domain",
+  "form.firstName": "First name",
+  "form.lastName": "Last name",
+  "form.email": "Email",
+
+  "role.label": "Role assigned to both contacts",
+  "role.sectionTitle": "Portal Role",
+  "role.admin": "Administrator",
+  "role.rw": "Read & Write",
+  "role.ro": "Read Only",
+
+  "association.willCreate": "Partner-Customer association will be created",
+  "association.singleEntity": "No association — single entity mode",
+
+  "hint.advancedMode": "Need to create just one entity? Try Advanced mode.",
+  "hint.dismiss": "Dismiss",
+
+  "submit.createAll": "Create all entities",
+  "submit.createPartnerCustomer": "Create partner + customer",
+  "submit.createPartner": "Create partner",
+  "submit.createCustomer": "Create customer",
+  "submit.creating": "Creating entities...",
+  "submit.retryIn": "Retry in {seconds}s",
+
+  "results.success": "Created successfully",
+  "results.startOver": "Start over",
+  "results.partner": "Partner",
+  "results.customer": "Customer",
+  "results.associationCreated": "Association: created",
+  "results.associationSkipped": "Association: not created — single entity mode",
+
+  "error.sessionExpired": "Your HubSpot session has expired. Please reconnect.",
+  "error.502": "HubSpot is temporarily unreachable (502). This is on their end — please try again in a moment.",
+  "error.503": "HubSpot is temporarily unavailable (503). Please try again shortly.",
+  "error.rateLimit": "Too many requests — HubSpot rate limit hit. Please wait before retrying.",
+  "error.nonJson": "HubSpot returned an unexpected response. Their API may be experiencing issues — try again shortly.",
+  "error.generic": "Something went wrong",
+
+  "theme.system": "Theme: system. Click to cycle.",
+  "theme.light": "Theme: light. Click to cycle.",
+  "theme.dark": "Theme: dark. Click to cycle.",
+
+  "language.switch": "Language: English. Click to switch.",
+
+  "loading": "Loading..."
+}

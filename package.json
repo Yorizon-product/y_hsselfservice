@@ -1,8 +1,9 @@
 {
-  "name": "hubspot-self-service",
-  "version": "0.5.0",
+  "name": "y_hsselfservice",
+  "version": "1.0.6",
   "private": true,
   "scripts": {
+    "prepare": "cp scripts/bump-version.sh .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit",
     "dev": "next dev",
     "prebuild": "node scripts/sync-theme.mjs",
     "build": "next build",
