@@ -128,7 +128,10 @@ test("pollCompanyReadiness throws PORTAL_CREATION_FAILED on first-attempt failur
     ),
     (err: any) => err instanceof PortalStatusError && err.code === "PORTAL_CREATION_FAILED"
   );
-  assert.equal(logs.length, 1); // did not progress to 2/3
+  // Two log lines on terminal failure: the poll attempt + the poll-result decision line.
+  assert.equal(logs.length, 2);
+  assert.match(logs[0], /poll 1\/3 company=123 .* class=failed/);
+  assert.match(logs[1], /poll-result company=123 decision=PORTAL_CREATION_FAILED/);
 });
 
 test("pollCompanyReadiness throws PORTAL_TIMEOUT when all three polls return empty", async () => {

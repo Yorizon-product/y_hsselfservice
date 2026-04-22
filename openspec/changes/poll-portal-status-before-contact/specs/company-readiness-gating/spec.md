@@ -21,17 +21,17 @@ The system SHALL poll the `portal_status_update` custom property on a newly-crea
 
 - **WHEN** a company has just been created
 - **AND** the property value at T=30s and T=60s is empty or null
-- **AND** the property value at T=120s is `<timestamp>: Company created successfully`
+- **AND** the property value at T=240s is `<timestamp>: Company created successfully`
 - **THEN** the system SHALL proceed to create the associated contact
 
 ### Requirement: Bounded poll budget with three attempts
 
-The system SHALL attempt at most three reads of `portal_status_update`: a first attempt at T=30s, a second at T=60s, and a third at T=120s — all measured from the moment the HubSpot company-create call returned. The system SHALL NOT add additional attempts beyond these three.
+The system SHALL attempt at most three reads of `portal_status_update`: a first attempt at T=30s, a second at T=60s, and a third at T=240s — all measured from the moment the HubSpot company-create call returned. The system SHALL NOT add additional attempts beyond these three.
 
 #### Scenario: Status never appears within the poll budget
 
 - **WHEN** a company has just been created
-- **AND** the property value is empty or null at T=30s, T=60s, and T=120s
+- **AND** the property value is empty or null at T=30s, T=60s, and T=240s
 - **THEN** the system SHALL abort the create flow with error code `PORTAL_TIMEOUT`
 - **AND** the system SHALL invoke `rollbackEntities()` to delete the created company
 - **AND** the system SHALL return HTTP 500 with an error message indicating provisioning did not complete in time
@@ -65,7 +65,7 @@ The system SHALL treat any non-empty `portal_status_update` value that is neithe
 - **WHEN** a company has just been created
 - **AND** the property value at T=30s is empty
 - **AND** the property value at T=60s is empty
-- **AND** the property value at T=120s is `<timestamp>: Company updated successfully` (or any other unexpected message)
+- **AND** the property value at T=240s is `<timestamp>: Company updated successfully` (or any other unexpected message)
 - **THEN** the system SHALL abort with error code `PORTAL_UNEXPECTED_STATE`
 - **AND** the system SHALL include the raw property value in the server audit log for debugging
 - **AND** the system SHALL invoke `rollbackEntities()` to delete the created company
@@ -148,7 +148,7 @@ The client SHALL display a staged progress indicator during a create request, re
 - **WHEN** the request has been in-flight 30s–60s (awaiting the second poll at T=60s)
 - **THEN** the client displays the "waiting-partner-provisioning" label with retry counter "1/2"
 
-- **WHEN** the request has been in-flight 60s–120s (awaiting the third poll at T=120s)
+- **WHEN** the request has been in-flight 60s–120s (awaiting the third poll at T=240s)
 - **THEN** the client displays the "waiting-partner-provisioning" label with retry counter "2/2"
 
 #### Scenario: Timeout surfaces a user-readable error
@@ -163,5 +163,5 @@ The `app/api/create/route.ts` module SHALL declare `export const maxDuration = 3
 
 #### Scenario: Long-running request completes within extended duration
 
-- **WHEN** a request takes ~240 seconds due to both partner and customer polls each running through their full T=30s / T=60s / T=120s budget
+- **WHEN** a request takes ~240 seconds due to both partner and customer polls each running through their full T=30s / T=60s / T=240s budget
 - **THEN** the Vercel runtime SHALL NOT terminate the request before completion

@@ -5,7 +5,7 @@
 Constraints shaping the design:
 
 - **Deployed on Vercel serverless.** Default function timeout is 10s on the App Router; `export const maxDuration` can raise it but there's a hard cap depending on plan (60s Hobby, 300s Pro). The user-facing request is synchronous — there's no background worker available without adding infra.
-- **HubSpot rate limits.** Private Apps: 100 req/10s burst, 250k/day. Polling at 30s/60s/120s adds at most 3 extra GETs per company — negligible.
+- **HubSpot rate limits.** Private Apps: 100 req/10s burst, 250k/day. Polling at 30s/60s/240s adds at most 3 extra GETs per company — negligible even when polling both sides in parallel (6 GETs spread across 240s).
 - **Field is a textarea, not an enum.** Values are freeform strings written by the automation. The allowlist was verified empirically against the live portal (see proposal) but could drift if the automation changes. Any match needs to be forgiving (trim, normalize whitespace) but specific enough not to false-positive on ambiguous messages.
 - **Field is overwritten on every status event.** On a brand-new company it starts empty, transitions to a creation-result message, and later gets overwritten by update events. Since we're polling a company we just created milliseconds ago, the first non-empty value we see IS the creation result.
 - **Rollback already works.** The existing `rollbackEntities()` loops through `createdIds` in reverse and deletes each via the v3 CRM API. A poll failure needs to throw into the existing catch so the company gets cleaned up.
@@ -19,7 +19,7 @@ Stakeholders: end users (creating test tenants), Arslan Ataev + Marius Lupasco (
 
 - Contact creation never fires before its paired company is confirmed ready in the Yorizon portal.
 - When provisioning fails or times out, the user gets a clear, actionable error and zero HubSpot-side residue (no orphan company, no orphan contact).
-- Total added latency stays under ~250s worst case (2 sides × 120s budget + overhead) so we stay inside Vercel Pro's 300s `maxDuration` cap.
+- Total added latency stays under ~250s worst case (240s parallel poll + overhead) so we stay inside Vercel Pro's 300s `maxDuration` cap.
 - Polling is cheap: no queues, no storage, no webhook infra. The whole thing fits inside the existing synchronous POST request.
 - The change is fully reversible: a feature flag / env var can disable polling and fall back to current behaviour without a code deploy.
 
@@ -32,11 +32,21 @@ Stakeholders: end users (creating test tenants), Arslan Ataev + Marius Lupasco (
 
 ## Decisions
 
-### 1. Polling schedule: T=30s / T=60s / T=120s (3 attempts, 120s budget per side)
+### 1. Polling schedule: T=30s / T=60s / T=240s (3 attempts, 240s budget per side)
 
-**Decision:** Poll `portal_status_update` at T=30s, T=60s, T=120s from the moment the company is created. Three attempts total, 120-second budget per side. If the third attempt returns empty or unknown, treat as `PORTAL_TIMEOUT` / `PORTAL_UNEXPECTED_STATE` and fail.
+**Decision:** Poll `portal_status_update` at T=30s, T=60s, T=240s from the moment the company is created. Three attempts total, 240-second budget per side. If the third attempt returns empty or unknown, treat as `PORTAL_TIMEOUT` / `PORTAL_UNEXPECTED_STATE` and fail.
 
-**Why:** The original T=0/+10s/+30s schedule was too optimistic — in practice the Yorizon provisioning automation frequently takes longer than 30 seconds to write the success status, and the tighter schedule produced false timeouts for otherwise-successful creates. The T=30/60/120s schedule accepts a longer wall-clock worst case in exchange for far fewer false failures. Three attempts still bound the total budget predictably.
+**Why:** The earlier T=30/60/120s schedule still produced timeouts on some slow-provisioning cases. Extending the final wait to T=240s catches the long tail without changing the early attempts (which already cover the fast-provisioning majority). Paired with parallel polling (decision 4), wall-clock worst case stays at 240s rather than 480s.
+
+### 2. Parallel polling across partner and customer
+
+**Decision:** Restructure the create flow into four phases: (1) create both companies sequentially, (2) poll both companies' `portal_status_update` in parallel via `Promise.all`, (3) create both contacts sequentially, (4) associate if both present. Single-entity Advanced-mode creates still work naturally (only one side in the poll array).
+
+**Why:** With per-side budget at 240s, sequential polling would worst-case at ~480s — well past Vercel Pro's 300s `maxDuration` cap. Parallel polling keeps the wall-clock worst case at ~245s. Rollback semantics remain tractable: `Promise.all` throws on first failure and the existing catch runs `rollbackEntities` against whichever IDs were pushed before the failure.
+
+**Alternatives considered:**
+- *Keep sequential, reduce budget:* Would undo the fix for the user's reported slow-provisioning cases.
+- *Full background-job architecture with client long-polling:* Defers the Vercel timeout problem entirely but adds KV/storage infra. Parallel polling gets us there without new infra.
 
 **Alternatives considered:**
 - *Linear polling (every 5s up to 45s):* More requests for the same outcome; retry-count-based messaging is harder to render meaningfully in the UI.
