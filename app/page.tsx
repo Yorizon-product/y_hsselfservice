@@ -91,15 +91,17 @@ type PortalErrorCode = typeof PORTAL_ERROR_CODES[number];
 function generateRandomCompany(userEmail: string | null, role: "partner" | "customer"): CompanyFields {
   const first = faker.person.firstName();
   const last = faker.person.lastName();
-  const companyName = faker.company.name();
+  // Yorizon's provisioning automation rejects company names containing
+  // commas — empirically, every failed create in the portal's history
+  // had a comma-containing name from `faker.company.name()` picking its
+  // "{lastName}, {lastName} und {lastName}" format. Constructing a
+  // comma-free name from scratch avoids that roulette: single surname
+  // plus a suffix like "GmbH", "AG", "UG", "Gruppe".
+  const suffix = faker.helpers.arrayElement(["GmbH", "AG", "UG", "Gruppe", "KG"]);
+  const companyName = `${last} ${suffix}`;
   const slug = faker.string.alphanumeric(4);
-  // Yorizon's provisioning automation silently rejects long subdomain
-  // labels — empirically, slugs ≥ 26 chars produce "Company creation
-  // failed" on portal_status_update. Multi-word German names like
-  // "Müller, Schmidt und Weber" slugify to `muller-schmidt-und-weber`
-  // which is too long even before we append the random suffix.
-  // Use only the first word of the company name (up to 12 chars) so the
-  // resulting subdomain stays safely short: `<word>-<slug4>.example.com`.
+  // Keep the domain slug short too — even with a comma-free name,
+  // extremely long subdomain labels hit a separate provisioning limit.
   const firstWord = faker.helpers
     .slugify(companyName)
     .toLowerCase()
