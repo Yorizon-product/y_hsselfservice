@@ -18,6 +18,47 @@ const emptyCompany = (): CompanyFields => ({ name: "", domain: "", contact: empt
 type Mode = "simple" | "advanced";
 type Theme = "system" | "light" | "dark";
 
+type ProgressStage =
+  | "creatingPartnerCompany"
+  | "waitingPartnerProvisioning"
+  | "creatingPartnerContact"
+  | "creatingCustomerCompany"
+  | "waitingCustomerProvisioning"
+  | "creatingCustomerContact";
+type Progress = { stage: ProgressStage; retry?: { current: number; total: number } };
+
+function computeProgress(
+  elapsedMs: number,
+  doPartner: boolean,
+  doCustomer: boolean
+): Progress | null {
+  const CREATE_MS = 500;
+  const POLL_IMMEDIATE_MS = 10_000;
+  const POLL_RETRY1_MS = 20_000;
+  const POLL_RETRY2_MS = 10_000;
+  let t = 0;
+  if (doPartner) {
+    if (elapsedMs < (t += CREATE_MS)) return { stage: "creatingPartnerCompany" };
+    if (elapsedMs < (t += POLL_IMMEDIATE_MS)) return { stage: "waitingPartnerProvisioning" };
+    if (elapsedMs < (t += POLL_RETRY1_MS)) return { stage: "waitingPartnerProvisioning", retry: { current: 1, total: 2 } };
+    if (elapsedMs < (t += POLL_RETRY2_MS)) return { stage: "waitingPartnerProvisioning", retry: { current: 2, total: 2 } };
+    if (elapsedMs < (t += CREATE_MS)) return { stage: "creatingPartnerContact" };
+  }
+  if (doCustomer) {
+    if (elapsedMs < (t += CREATE_MS)) return { stage: "creatingCustomerCompany" };
+    if (elapsedMs < (t += POLL_IMMEDIATE_MS)) return { stage: "waitingCustomerProvisioning" };
+    if (elapsedMs < (t += POLL_RETRY1_MS)) return { stage: "waitingCustomerProvisioning", retry: { current: 1, total: 2 } };
+    if (elapsedMs < (t += POLL_RETRY2_MS)) return { stage: "waitingCustomerProvisioning", retry: { current: 2, total: 2 } };
+    if (elapsedMs < (t += CREATE_MS)) return { stage: "creatingCustomerContact" };
+  }
+  if (doCustomer) return { stage: "creatingCustomerContact" };
+  if (doPartner) return { stage: "creatingPartnerContact" };
+  return null;
+}
+
+const PORTAL_ERROR_CODES = ["PORTAL_TIMEOUT", "PORTAL_CREATION_FAILED", "PORTAL_UNEXPECTED_STATE"] as const;
+type PortalErrorCode = typeof PORTAL_ERROR_CODES[number];
+
 function generateRandomCompany(userEmail: string | null, role: "partner" | "customer"): CompanyFields {
   const first = faker.person.firstName();
   const last = faker.person.lastName();
@@ -90,6 +131,9 @@ export default function Home() {
   const cooldownRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [results, setResults] = useState<CreatedEntity[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<Progress | null>(null);
+  const progressStartRef = useRef<number>(0);
+  const progressTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const { theme, cycle: cycleTheme } = useTheme();
   const { mode, setMode } = useMode();
@@ -103,7 +147,10 @@ export default function Home() {
   const isAdvanced = mode === "advanced";
 
   useEffect(() => {
-    return () => { if (cooldownRef.current) clearInterval(cooldownRef.current); };
+    return () => {
+      if (cooldownRef.current) clearInterval(cooldownRef.current);
+      if (progressTickRef.current) clearInterval(progressTickRef.current);
+    };
   }, []);
 
   useEffect(() => {
@@ -146,7 +193,10 @@ export default function Home() {
     }, 1000);
   };
 
-  const friendlyError = (msg: string): string => {
+  const friendlyError = (msg: string, code?: PortalErrorCode): string => {
+    if (code === "PORTAL_TIMEOUT") return t("poll.error.timeout" as TranslationKey) || msg;
+    if (code === "PORTAL_CREATION_FAILED") return t("poll.error.creationFailed" as TranslationKey) || msg;
+    if (code === "PORTAL_UNEXPECTED_STATE") return t("poll.error.unexpectedState" as TranslationKey) || msg;
     if (msg.includes("Not authenticated") || msg.includes("expired")) return t("error.sessionExpired");
     if (msg.includes("502") || msg.includes("Bad Gateway")) return t("error.502");
     if (msg.includes("503") || msg.includes("Service Unavailable")) return t("error.503");
@@ -160,6 +210,15 @@ export default function Home() {
     setLoading(true); setError(null); setResults(null);
     const activePartner = isAdvanced && !partnerEnabled ? null : partner;
     const activeCustomer = isAdvanced && !customerEnabled ? null : customer;
+    const doPartner = !!activePartner;
+    const doCustomer = !!activeCustomer;
+    progressStartRef.current = performance.now();
+    setProgress(computeProgress(0, doPartner, doCustomer));
+    if (progressTickRef.current) clearInterval(progressTickRef.current);
+    progressTickRef.current = setInterval(() => {
+      const elapsed = performance.now() - progressStartRef.current;
+      setProgress(computeProgress(elapsed, doPartner, doCustomer));
+    }, 500);
     try {
       const idempotencyKey = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const payload: Record<string, any> = { partner: activePartner, customer: activeCustomer, portalId };
@@ -173,13 +232,22 @@ export default function Home() {
         body: JSON.stringify(payload),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || t("error.generic"));
+      if (!res.ok) {
+        const err = new Error(data.error || t("error.generic"));
+        (err as any).code = data.code;
+        throw err;
+      }
       setResults(data.created);
       setPartner(emptyCompany()); setCustomer(emptyCompany());
     } catch (e: any) {
-      setError(friendlyError(e.message));
+      const code = PORTAL_ERROR_CODES.includes(e.code) ? (e.code as PortalErrorCode) : undefined;
+      setError(friendlyError(e.message, code));
       startCooldown();
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+      if (progressTickRef.current) { clearInterval(progressTickRef.current); progressTickRef.current = null; }
+      setProgress(null);
+    }
   };
 
   const updatePartner = (patch: Partial<CompanyFields>) => setPartner((p) => ({ ...p, ...patch }));
@@ -368,6 +436,19 @@ export default function Home() {
               className="w-full min-h-[44px] py-3 rounded-pill font-button font-semibold text-sm uppercase tracking-wide transition-all bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed">
               {loading ? t("submit.creating") : cooldown > 0 ? t("submit.retryIn", { seconds: cooldown }) : submitLabel}
             </button>
+
+            {/* Progress (while loading) */}
+            {loading && progress && (
+              <div className="mt-3 flex items-center gap-2 px-1" role="status" aria-live="polite">
+                <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+                <span className="text-xs font-mono text-muted-foreground">
+                  {t(("poll.stage." + progress.stage) as TranslationKey)}
+                  {progress.retry && (
+                    <> · {t("poll.retry" as TranslationKey, { current: progress.retry.current, total: progress.retry.total })}</>
+                  )}
+                </span>
+              </div>
+            )}
 
             {/* Error */}
             {error && (
