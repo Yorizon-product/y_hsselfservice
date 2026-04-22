@@ -3,7 +3,7 @@ import { getSession } from "@/lib/session";
 import { getHubSpotToken, AuthError } from "@/lib/hubspot-token";
 import { pollCompanyReadiness, PortalStatusError } from "@/lib/portal-status";
 
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 const HUBSPOT_API = "https://api.hubapi.com";
 const PORTAL_STATUS_POLL_ENABLED = process.env.PORTAL_STATUS_POLL !== "off";

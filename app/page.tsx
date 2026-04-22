@@ -32,23 +32,25 @@ function computeProgress(
   doPartner: boolean,
   doCustomer: boolean
 ): Progress | null {
+  // Stage durations match the poll schedule in lib/portal-status.ts:
+  // attempts at T=30s / T=60s / T=120s from company creation.
   const CREATE_MS = 500;
-  const POLL_IMMEDIATE_MS = 10_000;
-  const POLL_RETRY1_MS = 20_000;
-  const POLL_RETRY2_MS = 10_000;
+  const POLL_WINDOW_1_MS = 30_000;  // waiting → first poll at T=30s
+  const POLL_WINDOW_2_MS = 30_000;  // retry 1/2 window → poll at T=60s
+  const POLL_WINDOW_3_MS = 60_000;  // retry 2/2 window → poll at T=120s
   let t = 0;
   if (doPartner) {
     if (elapsedMs < (t += CREATE_MS)) return { stage: "creatingPartnerCompany" };
-    if (elapsedMs < (t += POLL_IMMEDIATE_MS)) return { stage: "waitingPartnerProvisioning" };
-    if (elapsedMs < (t += POLL_RETRY1_MS)) return { stage: "waitingPartnerProvisioning", retry: { current: 1, total: 2 } };
-    if (elapsedMs < (t += POLL_RETRY2_MS)) return { stage: "waitingPartnerProvisioning", retry: { current: 2, total: 2 } };
+    if (elapsedMs < (t += POLL_WINDOW_1_MS)) return { stage: "waitingPartnerProvisioning" };
+    if (elapsedMs < (t += POLL_WINDOW_2_MS)) return { stage: "waitingPartnerProvisioning", retry: { current: 1, total: 2 } };
+    if (elapsedMs < (t += POLL_WINDOW_3_MS)) return { stage: "waitingPartnerProvisioning", retry: { current: 2, total: 2 } };
     if (elapsedMs < (t += CREATE_MS)) return { stage: "creatingPartnerContact" };
   }
   if (doCustomer) {
     if (elapsedMs < (t += CREATE_MS)) return { stage: "creatingCustomerCompany" };
-    if (elapsedMs < (t += POLL_IMMEDIATE_MS)) return { stage: "waitingCustomerProvisioning" };
-    if (elapsedMs < (t += POLL_RETRY1_MS)) return { stage: "waitingCustomerProvisioning", retry: { current: 1, total: 2 } };
-    if (elapsedMs < (t += POLL_RETRY2_MS)) return { stage: "waitingCustomerProvisioning", retry: { current: 2, total: 2 } };
+    if (elapsedMs < (t += POLL_WINDOW_1_MS)) return { stage: "waitingCustomerProvisioning" };
+    if (elapsedMs < (t += POLL_WINDOW_2_MS)) return { stage: "waitingCustomerProvisioning", retry: { current: 1, total: 2 } };
+    if (elapsedMs < (t += POLL_WINDOW_3_MS)) return { stage: "waitingCustomerProvisioning", retry: { current: 2, total: 2 } };
     if (elapsedMs < (t += CREATE_MS)) return { stage: "creatingCustomerContact" };
   }
   if (doCustomer) return { stage: "creatingCustomerContact" };

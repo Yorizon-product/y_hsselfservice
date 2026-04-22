@@ -88,8 +88,9 @@ export function classifyStatus(
 type Logger = (line: string) => void;
 
 type PollOptions = {
-  // Delays before each attempt, in milliseconds. Defaults to [0, 10_000, 30_000]
-  // (T=0, T=10s, T=30s per spec). Overridable for tests.
+  // Incremental sleep before each attempt, in milliseconds. Defaults to
+  // [30_000, 30_000, 60_000] → cumulative T=30s, T=60s, T=120s from the
+  // moment the company was created. Overridable for tests.
   delaysMs?: number[];
   // Injectable fetch for testing.
   fetchImpl?: typeof fetch;
@@ -113,7 +114,7 @@ export async function pollCompanyReadiness(
   log: Logger,
   opts: PollOptions = {}
 ): Promise<void> {
-  const delays = opts.delaysMs ?? [0, 10_000, 30_000];
+  const delays = opts.delaysMs ?? [30_000, 30_000, 60_000];
   const fetchFn = opts.fetchImpl ?? fetch;
   const sleep = opts.sleep ?? defaultSleep;
 

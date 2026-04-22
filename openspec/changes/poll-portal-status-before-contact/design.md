@@ -5,7 +5,7 @@
 Constraints shaping the design:
 
 - **Deployed on Vercel serverless.** Default function timeout is 10s on the App Router; `export const maxDuration` can raise it but there's a hard cap depending on plan (60s Hobby, 300s Pro). The user-facing request is synchronous — there's no background worker available without adding infra.
-- **HubSpot rate limits.** Private Apps: 100 req/10s burst, 250k/day. Polling at 10s/30s adds at most 2 extra GETs per company — negligible.
+- **HubSpot rate limits.** Private Apps: 100 req/10s burst, 250k/day. Polling at 30s/60s/120s adds at most 3 extra GETs per company — negligible.
 - **Field is a textarea, not an enum.** Values are freeform strings written by the automation. The allowlist was verified empirically against the live portal (see proposal) but could drift if the automation changes. Any match needs to be forgiving (trim, normalize whitespace) but specific enough not to false-positive on ambiguous messages.
 - **Field is overwritten on every status event.** On a brand-new company it starts empty, transitions to a creation-result message, and later gets overwritten by update events. Since we're polling a company we just created milliseconds ago, the first non-empty value we see IS the creation result.
 - **Rollback already works.** The existing `rollbackEntities()` loops through `createdIds` in reverse and deletes each via the v3 CRM API. A poll failure needs to throw into the existing catch so the company gets cleaned up.
@@ -19,7 +19,7 @@ Stakeholders: end users (creating test tenants), Arslan Ataev + Marius Lupasco (
 
 - Contact creation never fires before its paired company is confirmed ready in the Yorizon portal.
 - When provisioning fails or times out, the user gets a clear, actionable error and zero HubSpot-side residue (no orphan company, no orphan contact).
-- Total added latency stays under 40s for the common "slow but successful" case so we stay inside a bumped Vercel `maxDuration`.
+- Total added latency stays under ~250s worst case (2 sides × 120s budget + overhead) so we stay inside Vercel Pro's 300s `maxDuration` cap.
 - Polling is cheap: no queues, no storage, no webhook infra. The whole thing fits inside the existing synchronous POST request.
 - The change is fully reversible: a feature flag / env var can disable polling and fall back to current behaviour without a code deploy.
 
@@ -32,11 +32,11 @@ Stakeholders: end users (creating test tenants), Arslan Ataev + Marius Lupasco (
 
 ## Decisions
 
-### 1. Polling schedule: immediate + 10s + 30s (3 attempts, ~40s budget)
+### 1. Polling schedule: T=30s / T=60s / T=120s (3 attempts, 120s budget per side)
 
-**Decision:** Poll `portal_status_update` at T=0, T=10s, T=30s from the moment the company is created. Three attempts total. If the third attempt returns empty, treat as `PORTAL_TIMEOUT` and fail.
+**Decision:** Poll `portal_status_update` at T=30s, T=60s, T=120s from the moment the company is created. Three attempts total, 120-second budget per side. If the third attempt returns empty or unknown, treat as `PORTAL_TIMEOUT` / `PORTAL_UNEXPECTED_STATE` and fail.
 
-**Why:** Matches the ticket description verbatim (Casey's original schedule). Three attempts give the automation two chances to catch up without making the user stare at a spinner for a minute. Sampling showed most successful provisionings landed in the "same second to tens of seconds" window. The 30s back-off is a belt-and-braces cushion for HubSpot event-bus lag.
+**Why:** The original T=0/+10s/+30s schedule was too optimistic — in practice the Yorizon provisioning automation frequently takes longer than 30 seconds to write the success status, and the tighter schedule produced false timeouts for otherwise-successful creates. The T=30/60/120s schedule accepts a longer wall-clock worst case in exchange for far fewer false failures. Three attempts still bound the total budget predictably.
 
 **Alternatives considered:**
 - *Linear polling (every 5s up to 45s):* More requests for the same outcome; retry-count-based messaging is harder to render meaningfully in the UI.
@@ -100,7 +100,7 @@ Any other non-empty value (including `Company updated successfully`, `Company up
 
 ### 7. Vercel function duration
 
-**Decision:** Add `export const maxDuration = 60` at the top of `app/api/create/route.ts`. Sufficient for worst case (two entities × ~40s poll + HubSpot calls ≈ 50s).
+**Decision:** Add `export const maxDuration = 300` at the top of `app/api/create/route.ts`. Sufficient for worst case (two entities × 120s poll + HubSpot calls ≈ 245s) with cushion. Requires Vercel Pro or higher (Hobby caps at 60s).
 
 **Why:** Minimum plan change needed. Well below the Pro-tier 300s cap.
 
@@ -108,7 +108,7 @@ Any other non-empty value (including `Company updated successfully`, `Company up
 
 - **Risk:** The automation changes its message strings without notice → all our creations start failing with `PORTAL_UNEXPECTED_STATE`. **Mitigation:** Log the raw `portal_status_update` value on every unexpected-state failure so we can update the allowlist quickly; add an integration test against a sandbox portal during CI if Arslan/Marius can set one up.
 - **Risk:** Polling-based latency frustrates users who are used to "instant" creation today. **Mitigation:** Progress indicator with explicit "Waiting for Yorizon provisioning…" label so the delay is attributed correctly; kill switch available if complaints spike.
-- **Risk:** Vercel function hits `maxDuration = 60` and returns a 504 gateway error mid-flow, leaving the user without a clear error and possibly with orphan companies in HubSpot. **Mitigation:** Set the poll budget (40s) well below the function timeout (60s) with 20s of cushion for HubSpot-side latency. The existing try/catch + rollback handles partial state even on abrupt termination — the catch runs, rollback runs, response is just lost. Future-proof: add a "cleanup" cron or a manual cleanup endpoint that scans for companies with empty `portal_status_update` older than N hours and deletes them.
+- **Risk:** Vercel function hits `maxDuration = 300` and returns a 504 gateway error mid-flow, leaving the user without a clear error and possibly with orphan companies in HubSpot. **Mitigation:** Set the per-side poll budget (120s) so both sides plus overhead stay under 250s, leaving 50s of cushion under the 300s cap. The existing try/catch + rollback handles partial state even on abrupt termination — the catch runs, rollback runs, response is just lost. Future-proof: add a "cleanup" cron or a manual cleanup endpoint that scans for companies with empty `portal_status_update` older than N hours and deletes them.
 - **Risk:** Terminal-failure short-circuit misses a case the automation fails silently (no message ever written, or written as "…failed" with a typo). **Mitigation:** The timeout path covers silent failures. Typo'd failure messages fall into `PORTAL_UNEXPECTED_STATE` which is still a failure — just with a slightly less informative user message. Acceptable.
 - **Trade-off:** We're coupling the tool to a specific, undocumented convention of a textarea field. The spec explicitly names `Company created successfully` and `Company creation failed`. If these ever change, the tool breaks. **Accepted** because the alternative (wait for a proper enum or a webhook contract from the automation team) blocks solving the user's pain indefinitely.
 
