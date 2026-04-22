@@ -257,6 +257,12 @@ export async function POST(req: NextRequest) {
         {
           error: `${stepError.message}${rolledBackSummary}`,
           code: portalCode,
+          // Surface the raw portal_status_update so the client can display
+          // exactly what Yorizon's automation wrote. Essential for debugging
+          // since Vercel's log stream aggregates per request and only keeps
+          // the first console.log line — the detailed poll logs aren't
+          // queryable after the fact.
+          rawStatus: stepError instanceof PortalStatusError ? stepError.rawStatus : undefined,
           rolledBack: rolledBackLabels,
         },
         { status: 500 }

@@ -93,7 +93,11 @@ function generateRandomCompany(userEmail: string | null, role: "partner" | "cust
   const last = faker.person.lastName();
   const companyName = faker.company.name();
   const slug = faker.string.alphanumeric(4);
-  const domain = `${faker.helpers.slugify(companyName).toLowerCase()}-${slug}.test`;
+  // Use an example.com subdomain rather than a bare `.test` TLD. Both are
+  // RFC-2606 reserved, but provisioning automations that validate domain
+  // TLDs against a public-suffix list will reject `.test` and accept a
+  // subdomain under `example.com`.
+  const domain = `${faker.helpers.slugify(companyName).toLowerCase()}-${slug}.example.com`;
   const tag = `${faker.helpers.slugify(companyName).toLowerCase()}-${role}-${slug}`;
   let contactEmail: string;
   if (userEmail && userEmail.includes("@")) {
@@ -264,13 +268,22 @@ export default function Home() {
       if (!res.ok) {
         const err = new Error(data.error || t("error.generic"));
         (err as any).code = data.code;
+        (err as any).rawStatus = data.rawStatus;
         throw err;
       }
       setResults(data.created);
       setPartner(emptyCompany()); setCustomer(emptyCompany());
     } catch (e: any) {
       const code = PORTAL_ERROR_CODES.includes(e.code) ? (e.code as PortalErrorCode) : undefined;
-      setError(friendlyError(e.message, code));
+      const base = friendlyError(e.message, code);
+      // If the server reported the raw Yorizon status, append it so the
+      // user sees exactly what the automation wrote. Useful for debugging
+      // unexpected-state and creation-failed errors where the root cause
+      // is in Yorizon's side (e.g. invalid domain, duplicate record).
+      const withRaw = e.rawStatus
+        ? `${base}\n\nHubSpot reported: ${e.rawStatus}`
+        : base;
+      setError(withRaw);
       startCooldown();
     } finally {
       setLoading(false);
@@ -474,7 +487,7 @@ export default function Home() {
             {/* Error */}
             {error && (
               <div className="mt-4 p-4 rounded-lg bg-destructive/10 border border-destructive/20" role="alert">
-                <p className="text-sm text-destructive font-mono">{error}</p>
+                <p className="text-sm text-destructive font-mono whitespace-pre-wrap break-words">{error}</p>
               </div>
             )}
 
