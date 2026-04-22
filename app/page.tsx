@@ -19,43 +19,70 @@ type Mode = "simple" | "advanced";
 type Theme = "system" | "light" | "dark";
 
 type ProgressStage =
-  | "creatingPartnerCompany"
-  | "waitingPartnerProvisioning"
-  | "creatingPartnerContact"
-  | "creatingCustomerCompany"
-  | "waitingCustomerProvisioning"
-  | "creatingCustomerContact";
-type Progress = { stage: ProgressStage; retry?: { current: number; total: number } };
+  | "creatingCompanies"
+  | "waitingProvisioning"
+  | "creatingContacts";
+type Progress = {
+  stage: ProgressStage;
+  retry?: { current: number; total: number };
+  // For waiting stages: seconds until the next server-side status check.
+  // Counts down from the full window length to 0.
+  secondsUntilNextCheck?: number;
+  // Fraction of the current waiting window elapsed, 0..1.
+  // Drives the progress-ring fill so it visually advances even during the
+  // final long 180s window.
+  windowProgress?: number;
+};
 
-function computeProgress(
-  elapsedMs: number,
-  doPartner: boolean,
-  doCustomer: boolean
-): Progress | null {
-  // Stage durations match the poll schedule in lib/portal-status.ts:
-  // attempts at T=30s / T=60s / T=120s from company creation.
-  const CREATE_MS = 500;
-  const POLL_WINDOW_1_MS = 30_000;  // waiting → first poll at T=30s
-  const POLL_WINDOW_2_MS = 30_000;  // retry 1/2 window → poll at T=60s
-  const POLL_WINDOW_3_MS = 60_000;  // retry 2/2 window → poll at T=120s
-  let t = 0;
-  if (doPartner) {
-    if (elapsedMs < (t += CREATE_MS)) return { stage: "creatingPartnerCompany" };
-    if (elapsedMs < (t += POLL_WINDOW_1_MS)) return { stage: "waitingPartnerProvisioning" };
-    if (elapsedMs < (t += POLL_WINDOW_2_MS)) return { stage: "waitingPartnerProvisioning", retry: { current: 1, total: 2 } };
-    if (elapsedMs < (t += POLL_WINDOW_3_MS)) return { stage: "waitingPartnerProvisioning", retry: { current: 2, total: 2 } };
-    if (elapsedMs < (t += CREATE_MS)) return { stage: "creatingPartnerContact" };
+// Stage boundaries match the parallel-polling flow in app/api/create/route.ts
+// and the default delays in lib/portal-status.ts ([30s, 30s, 180s]).
+const CREATE_PHASE_MS = 1_500;    // Create both companies (sequential, quick)
+const POLL_WINDOW_1_MS = 30_000;  // Wait to T=30s for first status check
+const POLL_WINDOW_2_MS = 30_000;  // Then +30s to T=60s (retry 1/2)
+const POLL_WINDOW_3_MS = 180_000; // Then +180s to T=240s (retry 2/2)
+const POLL_TOTAL_MS = POLL_WINDOW_1_MS + POLL_WINDOW_2_MS + POLL_WINDOW_3_MS;
+
+function computeProgress(elapsedMs: number): Progress | null {
+  // Phase 1: creating companies
+  if (elapsedMs < CREATE_PHASE_MS) return { stage: "creatingCompanies" };
+
+  const pollElapsed = elapsedMs - CREATE_PHASE_MS;
+
+  // Phase 2: waiting for provisioning — split into three windows matching the
+  // server-side poll schedule. Each window gets its own countdown + retry label.
+  if (pollElapsed < POLL_WINDOW_1_MS) {
+    const remaining = POLL_WINDOW_1_MS - pollElapsed;
+    return {
+      stage: "waitingProvisioning",
+      secondsUntilNextCheck: Math.max(0, Math.ceil(remaining / 1000)),
+      windowProgress: pollElapsed / POLL_WINDOW_1_MS,
+    };
   }
-  if (doCustomer) {
-    if (elapsedMs < (t += CREATE_MS)) return { stage: "creatingCustomerCompany" };
-    if (elapsedMs < (t += POLL_WINDOW_1_MS)) return { stage: "waitingCustomerProvisioning" };
-    if (elapsedMs < (t += POLL_WINDOW_2_MS)) return { stage: "waitingCustomerProvisioning", retry: { current: 1, total: 2 } };
-    if (elapsedMs < (t += POLL_WINDOW_3_MS)) return { stage: "waitingCustomerProvisioning", retry: { current: 2, total: 2 } };
-    if (elapsedMs < (t += CREATE_MS)) return { stage: "creatingCustomerContact" };
+
+  const afterWindow1 = pollElapsed - POLL_WINDOW_1_MS;
+  if (afterWindow1 < POLL_WINDOW_2_MS) {
+    const remaining = POLL_WINDOW_2_MS - afterWindow1;
+    return {
+      stage: "waitingProvisioning",
+      retry: { current: 1, total: 2 },
+      secondsUntilNextCheck: Math.max(0, Math.ceil(remaining / 1000)),
+      windowProgress: afterWindow1 / POLL_WINDOW_2_MS,
+    };
   }
-  if (doCustomer) return { stage: "creatingCustomerContact" };
-  if (doPartner) return { stage: "creatingPartnerContact" };
-  return null;
+
+  const afterWindow2 = afterWindow1 - POLL_WINDOW_2_MS;
+  if (afterWindow2 < POLL_WINDOW_3_MS) {
+    const remaining = POLL_WINDOW_3_MS - afterWindow2;
+    return {
+      stage: "waitingProvisioning",
+      retry: { current: 2, total: 2 },
+      secondsUntilNextCheck: Math.max(0, Math.ceil(remaining / 1000)),
+      windowProgress: afterWindow2 / POLL_WINDOW_3_MS,
+    };
+  }
+
+  // Phase 3: creating contacts (+ association). Polling is done.
+  return { stage: "creatingContacts" };
 }
 
 const PORTAL_ERROR_CODES = ["PORTAL_TIMEOUT", "PORTAL_CREATION_FAILED", "PORTAL_UNEXPECTED_STATE"] as const;
@@ -212,15 +239,15 @@ export default function Home() {
     setLoading(true); setError(null); setResults(null);
     const activePartner = isAdvanced && !partnerEnabled ? null : partner;
     const activeCustomer = isAdvanced && !customerEnabled ? null : customer;
-    const doPartner = !!activePartner;
-    const doCustomer = !!activeCustomer;
     progressStartRef.current = performance.now();
-    setProgress(computeProgress(0, doPartner, doCustomer));
+    setProgress(computeProgress(0));
     if (progressTickRef.current) clearInterval(progressTickRef.current);
+    // 250ms tick keeps the per-second countdown readable without
+    // over-rendering. The progress ring is CSS-animated, not JS-driven.
     progressTickRef.current = setInterval(() => {
       const elapsed = performance.now() - progressStartRef.current;
-      setProgress(computeProgress(elapsed, doPartner, doCustomer));
-    }, 500);
+      setProgress(computeProgress(elapsed));
+    }, 250);
     try {
       const idempotencyKey = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const payload: Record<string, any> = { partner: activePartner, customer: activeCustomer, portalId };
@@ -441,15 +468,7 @@ export default function Home() {
 
             {/* Progress (while loading) */}
             {loading && progress && (
-              <div className="mt-3 flex items-center gap-2 px-1" role="status" aria-live="polite">
-                <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
-                <span className="text-xs font-mono text-muted-foreground">
-                  {t(("poll.stage." + progress.stage) as TranslationKey)}
-                  {progress.retry && (
-                    <> · {t("poll.retry" as TranslationKey, { current: progress.retry.current, total: progress.retry.total })}</>
-                  )}
-                </span>
-              </div>
+              <ProgressIndicator progress={progress} t={t} />
             )}
 
             {/* Error */}
@@ -483,6 +502,68 @@ export default function Home() {
 /* --- Components --- */
 
 type TFunc = (key: TranslationKey, vars?: Record<string, string | number>) => string;
+
+function ProgressIndicator({ progress, t }: { progress: Progress; t: TFunc }) {
+  const isWaiting = progress.stage === "waitingProvisioning";
+  const label = t(("poll.stage." + progress.stage) as TranslationKey);
+  const retryLabel = progress.retry
+    ? t("poll.retry" as TranslationKey, { current: progress.retry.current, total: progress.retry.total })
+    : null;
+
+  // SVG ring: circumference = 2 * π * r. r=20 → C ≈ 125.66.
+  // Fill from 0 (empty) to C (full) via strokeDashoffset.
+  const RADIUS = 20;
+  const CIRC = 2 * Math.PI * RADIUS;
+  const fillFraction = isWaiting && progress.windowProgress !== undefined ? progress.windowProgress : 0;
+  const dashOffset = CIRC * (1 - Math.min(1, Math.max(0, fillFraction)));
+
+  return (
+    <div
+      className="mt-4 flex items-center gap-3 px-3 py-3 rounded-lg bg-muted/50 border border-border"
+      role="status"
+      aria-live="polite"
+    >
+      {isWaiting ? (
+        <div className="relative w-12 h-12 shrink-0">
+          <svg className="w-12 h-12 -rotate-90" viewBox="0 0 48 48" aria-hidden="true">
+            <circle cx="24" cy="24" r={RADIUS} fill="none" stroke="currentColor" strokeWidth="3" className="text-border" />
+            <circle
+              cx="24"
+              cy="24"
+              r={RADIUS}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="3"
+              strokeDasharray={CIRC}
+              strokeDashoffset={dashOffset}
+              strokeLinecap="round"
+              className="text-primary transition-all duration-250 ease-linear"
+            />
+          </svg>
+          <div className="absolute inset-0 flex items-center justify-center">
+            <span className="text-xs font-mono font-semibold tabular-nums text-foreground">
+              {progress.secondsUntilNextCheck ?? 0}
+              <span className="text-[0.6em] text-muted-foreground">s</span>
+            </span>
+          </div>
+        </div>
+      ) : (
+        <div className="w-12 h-12 shrink-0 flex items-center justify-center">
+          <div className="w-3 h-3 rounded-full bg-primary animate-pulse" />
+        </div>
+      )}
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-medium text-foreground">{label}</div>
+        {isWaiting && (
+          <div className="text-xs font-mono text-muted-foreground mt-0.5">
+            {retryLabel ? <>{retryLabel} · </> : null}
+            {t("poll.nextCheckIn" as TranslationKey, { seconds: progress.secondsUntilNextCheck ?? 0 })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function ResultsDisplay({ results, t }: { results: CreatedEntity[]; t: TFunc }) {
   const partnerResults = results.filter(r => r.type.startsWith("Partner"));

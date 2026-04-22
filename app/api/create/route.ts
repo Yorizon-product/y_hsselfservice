@@ -142,9 +142,14 @@ export async function POST(req: NextRequest) {
     try {
       const noteBody = `Created via HS Self-Service tool by ${createdBy} on ${new Date().toISOString().slice(0, 10)}`;
 
-      // 1. Create partner (if requested)
+      // Phase 1: Create both companies (+ notes) sequentially up front.
+      // Quick operations (~1s each). Doing both before polling lets us
+      // run the slow portal-readiness polls in parallel in phase 2.
+      let partnerCompany: any = null;
+      let customerCompany: any = null;
+
       if (partner) {
-        const partnerCompany = await createCompany(headers, partner.name, partner.domain, "PARTNER");
+        partnerCompany = await createCompany(headers, partner.name, partner.domain, "PARTNER");
         createdIds.push({ type: "companies", id: partnerCompany.id, label: "partner_company" });
         await createNote(headers, noteBody, "companies", partnerCompany.id);
         created.push({
@@ -153,16 +158,51 @@ export async function POST(req: NextRequest) {
           name: partner.name,
           url: recordUrl("company", partnerCompany.id),
         });
+      }
 
-        if (PORTAL_STATUS_POLL_ENABLED) {
-          await pollCompanyReadiness(
-            token,
-            partnerCompany.id,
-            new Date(partnerCompany.createdAt),
-            (line) => console.log(line)
+      if (customer) {
+        customerCompany = await createCompany(headers, customer.name, customer.domain, "CUSTOMER");
+        createdIds.push({ type: "companies", id: customerCompany.id, label: "customer_company" });
+        await createNote(headers, noteBody, "companies", customerCompany.id);
+        created.push({
+          type: "Customer Company",
+          id: customerCompany.id,
+          name: customer.name,
+          url: recordUrl("company", customerCompany.id),
+        });
+      }
+
+      // Phase 2: Poll both companies' portal_status_update in parallel.
+      // Worst case wall-clock is max(partner budget, customer budget),
+      // not the sum. Uses Promise.all so the first failure throws —
+      // rollback then cleans up whichever companies exist.
+      if (PORTAL_STATUS_POLL_ENABLED) {
+        const polls: Promise<void>[] = [];
+        if (partnerCompany) {
+          polls.push(
+            pollCompanyReadiness(
+              token,
+              partnerCompany.id,
+              new Date(partnerCompany.createdAt),
+              (line) => console.log(`${line} side=partner`)
+            )
           );
         }
+        if (customerCompany) {
+          polls.push(
+            pollCompanyReadiness(
+              token,
+              customerCompany.id,
+              new Date(customerCompany.createdAt),
+              (line) => console.log(`${line} side=customer`)
+            )
+          );
+        }
+        await Promise.all(polls);
+      }
 
+      // Phase 3: Create contacts (+ notes) for each company whose poll succeeded.
+      if (partner && partnerCompany) {
         const partnerContact = await createContact(headers, partner.contact, partnerCompany.id, resolvedPartnerRole!);
         createdIds.push({ type: "contacts", id: partnerContact.id, label: "partner_contact" });
         await createNote(headers, noteBody, "contacts", partnerContact.id);
@@ -174,27 +214,7 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      // 2. Create customer (if requested)
-      if (customer) {
-        const customerCompany = await createCompany(headers, customer.name, customer.domain, "CUSTOMER");
-        createdIds.push({ type: "companies", id: customerCompany.id, label: "customer_company" });
-        await createNote(headers, noteBody, "companies", customerCompany.id);
-        created.push({
-          type: "Customer Company",
-          id: customerCompany.id,
-          name: customer.name,
-          url: recordUrl("company", customerCompany.id),
-        });
-
-        if (PORTAL_STATUS_POLL_ENABLED) {
-          await pollCompanyReadiness(
-            token,
-            customerCompany.id,
-            new Date(customerCompany.createdAt),
-            (line) => console.log(line)
-          );
-        }
-
+      if (customer && customerCompany) {
         const customerContact = await createContact(headers, customer.contact, customerCompany.id, resolvedCustomerRole!);
         createdIds.push({ type: "contacts", id: customerContact.id, label: "customer_contact" });
         await createNote(headers, noteBody, "contacts", customerContact.id);
@@ -206,7 +226,7 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      // 3. Associate partner <-> customer (only when both present)
+      // Phase 4: Associate partner <-> customer (only when both present)
       if (partner && customer) {
         const partnerCompanyId = createdIds.find(e => e.label === "partner_company")!.id;
         const customerCompanyId = createdIds.find(e => e.label === "customer_company")!.id;

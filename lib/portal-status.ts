@@ -89,7 +89,7 @@ type Logger = (line: string) => void;
 
 type PollOptions = {
   // Incremental sleep before each attempt, in milliseconds. Defaults to
-  // [30_000, 30_000, 60_000] → cumulative T=30s, T=60s, T=120s from the
+  // [30_000, 30_000, 180_000] → cumulative T=30s, T=60s, T=240s from the
   // moment the company was created. Overridable for tests.
   delaysMs?: number[];
   // Injectable fetch for testing.
@@ -97,6 +97,9 @@ type PollOptions = {
   // Injectable sleep for testing.
   sleep?: (ms: number) => Promise<void>;
 };
+
+// Exposed so the client can compute its countdown in lockstep with the server.
+export const DEFAULT_POLL_DELAYS_MS = [30_000, 30_000, 180_000] as const;
 
 const defaultSleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -114,33 +117,46 @@ export async function pollCompanyReadiness(
   log: Logger,
   opts: PollOptions = {}
 ): Promise<void> {
-  const delays = opts.delaysMs ?? [30_000, 30_000, 60_000];
+  const delays = opts.delaysMs ?? [...DEFAULT_POLL_DELAYS_MS];
   const fetchFn = opts.fetchImpl ?? fetch;
   const sleep = opts.sleep ?? defaultSleep;
 
   let lastRaw: string | null = null;
+  let lastModified: string | null = null;
+  const t0 = Date.now();
 
   for (let i = 0; i < delays.length; i++) {
     if (delays[i] > 0) await sleep(delays[i]);
 
+    // Pulling hs_lastmodifieddate alongside portal_status_update so logs
+    // can distinguish "Yorizon never touched the record" from "Yorizon
+    // touched it but the status text isn't what we expect".
     const res = await fetchFn(
-      `${HUBSPOT_API}/crm/v3/objects/companies/${companyId}?properties=portal_status_update`,
+      `${HUBSPOT_API}/crm/v3/objects/companies/${companyId}?properties=portal_status_update,hs_lastmodifieddate`,
       { headers: { Authorization: `Bearer ${token}` } }
     );
     if (!res.ok) {
       throw new Error(`HubSpot status read failed: HTTP ${res.status}`);
     }
-    const body = (await res.json()) as { properties?: { portal_status_update?: string | null } };
+    const body = (await res.json()) as {
+      properties?: { portal_status_update?: string | null; hs_lastmodifieddate?: string | null };
+    };
     const raw = body.properties?.portal_status_update ?? null;
     lastRaw = raw;
+    lastModified = body.properties?.hs_lastmodifieddate ?? null;
 
     const parsed = parseStatus(raw);
     const cls = classifyStatus(parsed, companyCreatedAt);
+    const elapsedMs = Date.now() - t0;
     const displayStatus = raw ? `"${raw}"` : "<empty>";
-    log(`[audit] poll ${i + 1}/${delays.length} company=${companyId} status=${displayStatus} class=${cls}`);
+    const touched = lastModified && lastModified !== companyCreatedAt.toISOString()
+      ? `touched@${lastModified}`
+      : "untouched-since-create";
+    log(`[audit] poll ${i + 1}/${delays.length} company=${companyId} elapsed=${elapsedMs}ms status=${displayStatus} ${touched} class=${cls}`);
 
     if (cls === "success") return;
     if (cls === "failed") {
+      log(`[audit] poll-result company=${companyId} decision=PORTAL_CREATION_FAILED raw=${displayStatus}`);
       throw new PortalStatusError(
         "PORTAL_CREATION_FAILED",
         "Yorizon reported that company provisioning failed.",
@@ -153,13 +169,19 @@ export async function pollCompanyReadiness(
   // Budget exhausted. Decide between timeout (never saw a message) and
   // unexpected-state (saw a message but it wasn't in the allowlist).
   const parsed = parseStatus(lastRaw);
+  const finalElapsed = Date.now() - t0;
+  const touched = lastModified && lastModified !== companyCreatedAt.toISOString()
+    ? `touched@${lastModified}`
+    : "never-touched";
   if (parsed && classifyStatus(parsed, companyCreatedAt) === "unexpected") {
+    log(`[audit] poll-result company=${companyId} decision=PORTAL_UNEXPECTED_STATE elapsed=${finalElapsed}ms ${touched} raw="${lastRaw}"`);
     throw new PortalStatusError(
       "PORTAL_UNEXPECTED_STATE",
       `Unexpected portal status after ${delays.length} attempts: ${parsed.message}`,
       lastRaw
     );
   }
+  log(`[audit] poll-result company=${companyId} decision=PORTAL_TIMEOUT elapsed=${finalElapsed}ms ${touched}`);
   throw new PortalStatusError(
     "PORTAL_TIMEOUT",
     `Portal provisioning did not complete after ${delays.length} attempts.`,

@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+**Countdown-Timer und paralleles Polling.** Die Wartezeit wird jetzt sichtbar — ein runder Countdown zaehlt die Sekunden bis zur naechsten Pruefung herunter, pro Wiederholung frisch. Partner und Kund:in werden parallel ueberwacht, sodass die Wall-Clock-Zeit bei beiden Seiten nicht verdoppelt wird.
+
+**Letztes Zeitfenster verdoppelt (T=30s, T=60s, T=240s).** Damit fangen wir auch die Faelle ab, in denen Yorizons Einrichtung ueber zwei Minuten braucht.
+
+**Bessere Debug-Logs.** Jede Statusabfrage loggt jetzt auch `hs_lastmodifieddate`, sodass man im Vercel-Log auf einen Blick sieht, ob das HubSpot-Record ueberhaupt angefasst wurde (Trigger hat nicht gefeuert) oder ob der Status-Text unerwartet aussieht.
+
+**Countdown timer and parallel polling (EN).** The wait is now visible — a circular countdown ring ticks down to the next check, fresh for each retry. Partner and customer are monitored in parallel so wall-clock time doesn't double when creating both.
+
+**Final wait window extended (T=30s, T=60s, T=240s).** Catches the cases where Yorizon's provisioning takes longer than two minutes.
+
+**Better debug logs.** Every status poll now also logs `hs_lastmodifieddate`, so you can tell at a glance in Vercel logs whether the HubSpot record was touched at all (trigger didn't fire) or whether the status text is unexpected.
+
+---
+
+## v1.0.8 (merged)
+
 **Polling-Schedule entspannt.** Die Wartezeit fuer Yorizons Einrichtungsautomation war zu optimistisch (T=0, +10s, +30s). Neue Zeiten: **30s, 60s, 120s**. Damit faengt das Tool auch die Faelle ab, in denen die Einrichtung laenger dauert, ohne faelschlicherweise als Timeout zu melden. Maximale Request-Dauer auf Vercel hochgesetzt (60s → 300s, braucht Vercel Pro).
 
 **Polling schedule relaxed (EN).** The poll schedule for Yorizon's provisioning automation was too optimistic (T=0, +10s, +30s). New times: **30s, 60s, 120s**. Catches slower-provisioning cases without false-timing them out. Vercel `maxDuration` raised 60s → 300s (requires Vercel Pro).
