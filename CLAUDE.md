@@ -29,6 +29,7 @@ The test suite uses Node's built-in test runner with native TypeScript type-stri
 - `SESSION_SECRET` — ≥32 chars; `lib/session.ts` throws at import time if missing
 - `BASIC_AUTH_USER` / `BASIC_AUTH_PASS` — edge middleware gate (skipped if either is unset, e.g. local dev; Lighthouse runs with `DISABLE_AUTH=1`)
 - `PORTAL_STATUS_POLL` — `on` (default) or `off`. Kill switch for the portal-readiness poll inserted between company and contact creation in `app/api/create/route.ts`; set to `off` to revert to pre-polling behaviour without a code change.
+- `PORTAL_STATUS_POLL_KEEP_ON_FAIL` — optional debug flag. When `1`, poll-failure path skips `rollbackEntities()` so the failed HubSpot records remain for inspection; the error response includes `kept[]` URLs that the client renders under the error message. Leaves orphans — only set during active debugging.
 
 ## Architecture
 
