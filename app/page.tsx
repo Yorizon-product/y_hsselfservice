@@ -93,11 +93,19 @@ function generateRandomCompany(userEmail: string | null, role: "partner" | "cust
   const last = faker.person.lastName();
   const companyName = faker.company.name();
   const slug = faker.string.alphanumeric(4);
-  // Use an example.com subdomain rather than a bare `.test` TLD. Both are
-  // RFC-2606 reserved, but provisioning automations that validate domain
-  // TLDs against a public-suffix list will reject `.test` and accept a
-  // subdomain under `example.com`.
-  const domain = `${faker.helpers.slugify(companyName).toLowerCase()}-${slug}.example.com`;
+  // Yorizon's provisioning automation silently rejects long subdomain
+  // labels — empirically, slugs ≥ 26 chars produce "Company creation
+  // failed" on portal_status_update. Multi-word German names like
+  // "Müller, Schmidt und Weber" slugify to `muller-schmidt-und-weber`
+  // which is too long even before we append the random suffix.
+  // Use only the first word of the company name (up to 12 chars) so the
+  // resulting subdomain stays safely short: `<word>-<slug4>.example.com`.
+  const firstWord = faker.helpers
+    .slugify(companyName)
+    .toLowerCase()
+    .split("-")[0]
+    .slice(0, 12);
+  const domain = `${firstWord}-${slug}.example.com`;
   const tag = `${faker.helpers.slugify(companyName).toLowerCase()}-${role}-${slug}`;
   let contactEmail: string;
   if (userEmail && userEmail.includes("@")) {
