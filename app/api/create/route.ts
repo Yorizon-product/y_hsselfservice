@@ -7,6 +7,12 @@ export const maxDuration = 300;
 
 const HUBSPOT_API = "https://api.hubapi.com";
 const PORTAL_STATUS_POLL_ENABLED = process.env.PORTAL_STATUS_POLL !== "off";
+// Debug flag. When `PORTAL_STATUS_POLL_KEEP_ON_FAIL=1`, poll failures
+// skip the rollback so the failed company stays in HubSpot for manual
+// inspection (checking notes, timeline events, or Yorizon-specific
+// fields that might carry a failure reason the textarea doesn't).
+// Leave off in normal production — it leaves orphan records on failure.
+const PORTAL_STATUS_POLL_KEEP_ON_FAIL = process.env.PORTAL_STATUS_POLL_KEEP_ON_FAIL === "1";
 
 const VALID_ROLES = new Set(["Admin-RW", "User-RW", "User-RO"]);
 const DEFAULT_ROLE = "User-RO";
@@ -239,31 +245,45 @@ export async function POST(req: NextRequest) {
         });
       }
     } catch (stepError: any) {
-      // Roll back any entities already created in HubSpot
       const rolledBackLabels = createdIds.map(e => e.label).reverse();
       const portalCode = stepError instanceof PortalStatusError ? stepError.code : undefined;
+      const skipRollback = portalCode && PORTAL_STATUS_POLL_KEEP_ON_FAIL;
+
       if (portalCode) {
-        console.error(`[create] Portal status ${portalCode} (raw="${stepError.rawStatus ?? "<empty>"}"), rolling back ${createdIds.length} entities`);
+        console.error(`[create] Portal status ${portalCode} (raw="${stepError.rawStatus ?? "<empty>"}"), ${skipRollback ? "keeping" : "rolling back"} ${createdIds.length} entities`);
       } else {
         console.error(`[create] Step failed, rolling back ${createdIds.length} entities:`, stepError.message);
       }
-      await rollbackEntities(headers, createdIds);
 
-      const rolledBackSummary = rolledBackLabels.length > 0
+      // When the debug flag is on, keep the created records in HubSpot so
+      // the user can inspect them. Otherwise the normal rollback runs.
+      if (!skipRollback) {
+        await rollbackEntities(headers, createdIds);
+      }
+
+      const rolledBackSummary = skipRollback
+        ? ` Records were kept in HubSpot for inspection (PORTAL_STATUS_POLL_KEEP_ON_FAIL=1). You'll need to delete them manually after debugging.`
+        : rolledBackLabels.length > 0
         ? ` ${rolledBackLabels.map(l => l.replace(/_/g, " ")).join(", ")} ${rolledBackLabels.length === 1 ? "was" : "were"} created but then removed — nothing was saved. You can retry safely.`
         : "";
+
+      // When we're keeping records, list the URLs so the user can click
+      // through to HubSpot and inspect the failed records directly.
+      const keptRecords = skipRollback
+        ? createdIds.map(e => ({
+            type: e.label,
+            id: e.id,
+            url: recordUrl(e.type === "companies" ? "company" : "contact", e.id),
+          }))
+        : undefined;
 
       return NextResponse.json(
         {
           error: `${stepError.message}${rolledBackSummary}`,
           code: portalCode,
-          // Surface the raw portal_status_update so the client can display
-          // exactly what Yorizon's automation wrote. Essential for debugging
-          // since Vercel's log stream aggregates per request and only keeps
-          // the first console.log line — the detailed poll logs aren't
-          // queryable after the fact.
           rawStatus: stepError instanceof PortalStatusError ? stepError.rawStatus : undefined,
-          rolledBack: rolledBackLabels,
+          rolledBack: skipRollback ? [] : rolledBackLabels,
+          kept: keptRecords,
         },
         { status: 500 }
       );

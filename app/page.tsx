@@ -269,6 +269,7 @@ export default function Home() {
         const err = new Error(data.error || t("error.generic"));
         (err as any).code = data.code;
         (err as any).rawStatus = data.rawStatus;
+        (err as any).kept = data.kept;
         throw err;
       }
       setResults(data.created);
@@ -283,7 +284,13 @@ export default function Home() {
       const withRaw = e.rawStatus
         ? `${base}\n\nHubSpot reported: ${e.rawStatus}`
         : base;
-      setError(withRaw);
+      // When debug mode (PORTAL_STATUS_POLL_KEEP_ON_FAIL=1) kept the
+      // failed records in HubSpot, show their direct URLs so the user
+      // can click through and inspect notes, timeline, and other fields.
+      const withKept = e.kept && e.kept.length > 0
+        ? `${withRaw}\n\nKept in HubSpot for inspection:\n${e.kept.map((k: any) => `· ${k.type.replace(/_/g, " ")} → ${k.url}`).join("\n")}`
+        : withRaw;
+      setError(withKept);
       startCooldown();
     } finally {
       setLoading(false);
