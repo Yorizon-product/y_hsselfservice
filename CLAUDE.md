@@ -34,10 +34,8 @@ The test suite uses Node's built-in test runner with native TypeScript type-stri
 
 ### Two layers of auth
 
-1. **`middleware.ts`** — Edge-runtime HTTP Basic auth wrapping the whole site (matcher excludes `_next/static`, `_next/image`, `favicon.ico`). Skipped when env vars absent.
+1. **`proxy.ts`** — Edge-runtime HTTP Basic auth wrapping the whole site (matcher excludes `_next/static`, `_next/image`, `favicon.ico`). Skipped when env vars absent. Next.js 16+ uses the `proxy.ts` convention (renamed from `middleware.ts`); both files are not allowed to coexist.
 2. **HubSpot OAuth** — `/api/auth/install` → HubSpot consent → `/api/auth/callback` exchanges code for tokens and stores `{accessToken, refreshToken, expiresAt, portalId, userEmail}` in the iron-session cookie. `/api/auth/me` reports status to the client; `/api/auth/logout` destroys the session.
-
-`proxy.ts` at the repo root is a stale duplicate of the middleware — not wired up. Don't edit it; edit `middleware.ts`.
 
 ### Token refresh
 
