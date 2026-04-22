@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import { getHubSpotToken, AuthError } from "@/lib/hubspot-token";
+import { pollCompanyReadiness, PortalStatusError } from "@/lib/portal-status";
+
+export const maxDuration = 60;
 
 const HUBSPOT_API = "https://api.hubapi.com";
+const PORTAL_STATUS_POLL_ENABLED = process.env.PORTAL_STATUS_POLL !== "off";
 
 const VALID_ROLES = new Set(["Admin-RW", "User-RW", "User-RO"]);
 const DEFAULT_ROLE = "User-RO";
@@ -150,6 +154,15 @@ export async function POST(req: NextRequest) {
           url: recordUrl("company", partnerCompany.id),
         });
 
+        if (PORTAL_STATUS_POLL_ENABLED) {
+          await pollCompanyReadiness(
+            token,
+            partnerCompany.id,
+            new Date(partnerCompany.createdAt),
+            (line) => console.log(line)
+          );
+        }
+
         const partnerContact = await createContact(headers, partner.contact, partnerCompany.id, resolvedPartnerRole!);
         createdIds.push({ type: "contacts", id: partnerContact.id, label: "partner_contact" });
         await createNote(headers, noteBody, "contacts", partnerContact.id);
@@ -172,6 +185,15 @@ export async function POST(req: NextRequest) {
           name: customer.name,
           url: recordUrl("company", customerCompany.id),
         });
+
+        if (PORTAL_STATUS_POLL_ENABLED) {
+          await pollCompanyReadiness(
+            token,
+            customerCompany.id,
+            new Date(customerCompany.createdAt),
+            (line) => console.log(line)
+          );
+        }
 
         const customerContact = await createContact(headers, customer.contact, customerCompany.id, resolvedCustomerRole!);
         createdIds.push({ type: "contacts", id: customerContact.id, label: "customer_contact" });
@@ -199,7 +221,12 @@ export async function POST(req: NextRequest) {
     } catch (stepError: any) {
       // Roll back any entities already created in HubSpot
       const rolledBackLabels = createdIds.map(e => e.label).reverse();
-      console.error(`[create] Step failed, rolling back ${createdIds.length} entities:`, stepError.message);
+      const portalCode = stepError instanceof PortalStatusError ? stepError.code : undefined;
+      if (portalCode) {
+        console.error(`[create] Portal status ${portalCode} (raw="${stepError.rawStatus ?? "<empty>"}"), rolling back ${createdIds.length} entities`);
+      } else {
+        console.error(`[create] Step failed, rolling back ${createdIds.length} entities:`, stepError.message);
+      }
       await rollbackEntities(headers, createdIds);
 
       const rolledBackSummary = rolledBackLabels.length > 0
@@ -209,6 +236,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           error: `${stepError.message}${rolledBackSummary}`,
+          code: portalCode,
           rolledBack: rolledBackLabels,
         },
         { status: 500 }

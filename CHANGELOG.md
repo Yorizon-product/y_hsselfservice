@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+**Wartet auf die Portal-Einrichtung.** Der Tool erstellt jetzt erst dann einen Kontakt, wenn Yorizon die zugehoerige Firma wirklich fertig eingerichtet hat. Dafuer pollen wir das Feld `portal_status_update` mit bis zu zwei Retries (+10s, +30s). Schlaegt die Einrichtung fehl oder dauert sie zu lange, raeumt der bestehende Rollback-Pfad auf und du kannst gefahrlos nochmal. Manuelles Nachgucken im Portal-Status entfaellt.
+
+**Live-Fortschrittsanzeige waehrend des Erstellens.** Statt eines einzelnen Spinners siehst du jetzt die aktuelle Phase — `Erstellt Partnerunternehmen`, `Yorizon richtet ein…`, `Erstellt Kontakt` — inklusive Retry-Zaehler, wenn das Warten auf die Einrichtung laenger dauert.
+
+**Killswitch `PORTAL_STATUS_POLL=off`.** Falls das Polling irgendwo stoert, kann es ohne Redeploy einfach abgeschaltet werden; die Route verhaelt sich dann wieder wie vorher.
+
+---
+
+## Unreleased (EN)
+
+**Waits for portal provisioning.** The tool now only creates a contact once Yorizon has actually finished provisioning the matching company. We poll the `portal_status_update` property with up to two retries (+10s, +30s). If provisioning fails or takes too long, the existing rollback path cleans up and you can safely retry. No more manual Portal Status checks.
+
+**Live progress indicator while creating.** Instead of a single spinner you now see the current phase — `Creating partner company`, `Waiting for Yorizon provisioning…`, `Creating contact` — including a retry counter when the wait gets longer.
+
+**Kill switch `PORTAL_STATUS_POLL=off`.** If the polling gets in the way, it can be turned off without a redeploy; the route reverts to pre-change behaviour.
+
+---
+
 ## v1.0.6 — 2026-04-01
 
 **Advanced Mode** ermoeglicht es, Partner:in oder Kund:in unabhaengig voneinander anzulegen — jeweils mit eigener Rolle (RO, RW, Admin). Die Zuordnung wird nur erstellt, wenn beide vorhanden sind.
