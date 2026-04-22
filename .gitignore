@@ -5,3 +5,7 @@ out/
 *.tsbuildinfo
 next-env.d.ts
 .lighthouseci/
+
+# Claude Code harness / OpenSpec skill definitions — managed locally, not
+# version-controlled (the harness drifts these and the drift is noise).
+.claude/
