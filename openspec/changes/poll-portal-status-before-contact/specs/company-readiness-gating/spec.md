@@ -4,34 +4,34 @@
 
 The system SHALL poll the `portal_status_update` custom property on a newly-created HubSpot company and only create the associated contact once the property reports successful provisioning. The polling SHALL execute entirely server-side within the existing `POST /api/create` handler in `app/api/create/route.ts`.
 
-#### Scenario: Company provisions successfully on the first poll
+#### Scenario: Company provisions successfully on the first attempt
 
-- **WHEN** a company has just been created and the server fetches `portal_status_update` at T=0 (immediately after the create call returns)
+- **WHEN** a company has just been created and the server waits 30 seconds then fetches `portal_status_update` (first attempt at T=30s)
 - **AND** the property value is `<timestamp>: Company created successfully`
 - **THEN** the system SHALL proceed to create the associated contact using the existing `createContact()` helper
 
 #### Scenario: Company provisions successfully on the first retry
 
 - **WHEN** a company has just been created
-- **AND** the property value at T=0 is empty or null
-- **AND** the property value at T=10s is `<timestamp>: Company created successfully`
+- **AND** the property value at T=30s is empty or null
+- **AND** the property value at T=60s is `<timestamp>: Company created successfully`
 - **THEN** the system SHALL proceed to create the associated contact
 
 #### Scenario: Company provisions successfully on the second retry
 
 - **WHEN** a company has just been created
-- **AND** the property value at T=0 and T=10s is empty or null
-- **AND** the property value at T=30s is `<timestamp>: Company created successfully`
+- **AND** the property value at T=30s and T=60s is empty or null
+- **AND** the property value at T=120s is `<timestamp>: Company created successfully`
 - **THEN** the system SHALL proceed to create the associated contact
 
 ### Requirement: Bounded poll budget with three attempts
 
-The system SHALL attempt at most three reads of `portal_status_update`: one immediately after company creation (T=0), and two retries at T=10s and T=30s measured from the moment the HubSpot company-create call returned. The system SHALL NOT add additional attempts beyond these three.
+The system SHALL attempt at most three reads of `portal_status_update`: a first attempt at T=30s, a second at T=60s, and a third at T=120s — all measured from the moment the HubSpot company-create call returned. The system SHALL NOT add additional attempts beyond these three.
 
 #### Scenario: Status never appears within the poll budget
 
 - **WHEN** a company has just been created
-- **AND** the property value is empty or null at T=0, T=10s, and T=30s
+- **AND** the property value is empty or null at T=30s, T=60s, and T=120s
 - **THEN** the system SHALL abort the create flow with error code `PORTAL_TIMEOUT`
 - **AND** the system SHALL invoke `rollbackEntities()` to delete the created company
 - **AND** the system SHALL return HTTP 500 with an error message indicating provisioning did not complete in time
@@ -40,10 +40,10 @@ The system SHALL attempt at most three reads of `portal_status_update`: one imme
 
 The system SHALL stop polling and fail immediately when `portal_status_update` reports a known terminal failure, without waiting for the remaining retries.
 
-#### Scenario: Creation failure on first poll
+#### Scenario: Creation failure on first attempt
 
 - **WHEN** a company has just been created
-- **AND** the property value at T=0 is `<timestamp>: Company creation failed`
+- **AND** the property value at T=30s is `<timestamp>: Company creation failed`
 - **THEN** the system SHALL NOT execute further polls
 - **AND** the system SHALL abort the create flow with error code `PORTAL_CREATION_FAILED`
 - **AND** the system SHALL invoke `rollbackEntities()` to delete the created company
@@ -51,8 +51,8 @@ The system SHALL stop polling and fail immediately when `portal_status_update` r
 
 #### Scenario: Creation failure on retry
 
-- **WHEN** the property value at T=0 is empty
-- **AND** the property value at T=10s is `<timestamp>: Company creation failed`
+- **WHEN** the property value at T=30s is empty
+- **AND** the property value at T=60s is `<timestamp>: Company creation failed`
 - **THEN** the system SHALL NOT execute the third poll
 - **AND** the system SHALL abort with `PORTAL_CREATION_FAILED` and roll back
 
@@ -63,17 +63,17 @@ The system SHALL treat any non-empty `portal_status_update` value that is neithe
 #### Scenario: Unknown status at final attempt
 
 - **WHEN** a company has just been created
-- **AND** the property value at T=0 is empty
-- **AND** the property value at T=10s is empty
-- **AND** the property value at T=30s is `<timestamp>: Company updated successfully` (or any other unexpected message)
+- **AND** the property value at T=30s is empty
+- **AND** the property value at T=60s is empty
+- **AND** the property value at T=120s is `<timestamp>: Company updated successfully` (or any other unexpected message)
 - **THEN** the system SHALL abort with error code `PORTAL_UNEXPECTED_STATE`
 - **AND** the system SHALL include the raw property value in the server audit log for debugging
 - **AND** the system SHALL invoke `rollbackEntities()` to delete the created company
 
 #### Scenario: Unknown status on early attempt continues polling
 
-- **WHEN** the property value at T=0 is `<timestamp>: Some unrecognised message`
-- **THEN** the system SHALL wait 10s and poll again rather than failing immediately
+- **WHEN** the property value at T=30s is `<timestamp>: Some unrecognised message`
+- **THEN** the system SHALL wait until T=60s and poll again rather than failing immediately
 
 ### Requirement: Status timestamp validation against baseline
 
@@ -82,7 +82,7 @@ The system SHALL parse the leading `DD/MM/YYYY HH:MM:SS.sss: ` timestamp from `p
 #### Scenario: Stale status on a freshly created company
 
 - **WHEN** the company's `createdAt` is `2026-04-22T10:00:05.000Z`
-- **AND** the property value at T=0 is `22/04/2026 09:59:00.000: Company created successfully` (5 seconds before create, exceeding the 2s skew window)
+- **AND** the property value at T=30s is `22/04/2026 09:59:00.000: Company created successfully` (5 seconds before create, exceeding the 2s skew window)
 - **THEN** the system SHALL treat the value as stale and continue polling
 
 ### Requirement: Per-side gating in Advanced mode
@@ -125,7 +125,7 @@ The system SHALL emit one `[audit]` log line per poll attempt, including the com
 
 #### Scenario: Successful first-attempt poll is logged
 
-- **WHEN** a poll at T=0 returns `Company created successfully`
+- **WHEN** a poll at T=30s returns `Company created successfully`
 - **THEN** the server logs contain an `[audit]` line matching `poll 1/3 company=<id> status="...: Company created successfully" → proceed`
 
 #### Scenario: Timeout is logged with final raw value
@@ -142,11 +142,14 @@ The client SHALL display a staged progress indicator during a create request, re
 - **WHEN** a request is in-flight for 0–500ms
 - **THEN** the client displays the "creating-partner-company" label
 
-- **WHEN** the request has been in-flight for 500ms–10s (during the first poll window)
+- **WHEN** the request has been in-flight for 500ms–30s (awaiting the first poll at T=30s)
 - **THEN** the client displays the "waiting-partner-provisioning" label without a retry counter
 
-- **WHEN** the request has been in-flight 10s–30s (during the retry window)
+- **WHEN** the request has been in-flight 30s–60s (awaiting the second poll at T=60s)
 - **THEN** the client displays the "waiting-partner-provisioning" label with retry counter "1/2"
+
+- **WHEN** the request has been in-flight 60s–120s (awaiting the third poll at T=120s)
+- **THEN** the client displays the "waiting-partner-provisioning" label with retry counter "2/2"
 
 #### Scenario: Timeout surfaces a user-readable error
 
@@ -156,9 +159,9 @@ The client SHALL display a staged progress indicator during a create request, re
 
 ### Requirement: Vercel function duration
 
-The `app/api/create/route.ts` module SHALL declare `export const maxDuration = 60` to permit poll budgets that exceed Vercel's default 10-second serverless function timeout.
+The `app/api/create/route.ts` module SHALL declare `export const maxDuration = 300` to permit a per-side poll budget of up to 120 seconds (up to ~250 seconds of total request time when creating both partner and customer). This exceeds Vercel's default 10-second serverless function timeout and the Hobby-plan 60-second cap, so the deployment SHALL be on a Vercel plan that supports 300-second function duration (Pro or higher).
 
 #### Scenario: Long-running request completes within extended duration
 
-- **WHEN** a request takes ~45 seconds due to two sequential poll retries on both sides
+- **WHEN** a request takes ~240 seconds due to both partner and customer polls each running through their full T=30s / T=60s / T=120s budget
 - **THEN** the Vercel runtime SHALL NOT terminate the request before completion

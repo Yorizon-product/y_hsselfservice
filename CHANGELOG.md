@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+**Polling-Schedule entspannt.** Die Wartezeit fuer Yorizons Einrichtungsautomation war zu optimistisch (T=0, +10s, +30s). Neue Zeiten: **30s, 60s, 120s**. Damit faengt das Tool auch die Faelle ab, in denen die Einrichtung laenger dauert, ohne faelschlicherweise als Timeout zu melden. Maximale Request-Dauer auf Vercel hochgesetzt (60s → 300s, braucht Vercel Pro).
+
+**Polling schedule relaxed (EN).** The poll schedule for Yorizon's provisioning automation was too optimistic (T=0, +10s, +30s). New times: **30s, 60s, 120s**. Catches slower-provisioning cases without false-timing them out. Vercel `maxDuration` raised 60s → 300s (requires Vercel Pro).
+
+---
+
+## Unreleased (v1.0.7 scope — merged)
+
 **Wartet auf die Portal-Einrichtung.** Der Tool erstellt jetzt erst dann einen Kontakt, wenn Yorizon die zugehoerige Firma wirklich fertig eingerichtet hat. Dafuer pollen wir das Feld `portal_status_update` mit bis zu zwei Retries (+10s, +30s). Schlaegt die Einrichtung fehl oder dauert sie zu lange, raeumt der bestehende Rollback-Pfad auf und du kannst gefahrlos nochmal. Manuelles Nachgucken im Portal-Status entfaellt.
 
 **Live-Fortschrittsanzeige waehrend des Erstellens.** Statt eines einzelnen Spinners siehst du jetzt die aktuelle Phase — `Erstellt Partnerunternehmen`, `Yorizon richtet ein…`, `Erstellt Kontakt` — inklusive Retry-Zaehler, wenn das Warten auf die Einrichtung laenger dauert.
