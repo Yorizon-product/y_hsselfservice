@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+**Sequentielle Verarbeitung pro Seite.** Partner und Kund:in werden jetzt nacheinander durchgezogen — erst Partner-Unternehmen komplett (Anlegen → Warten → Kontakt), dann Kund:innen-Unternehmen komplett, dann erst die Verknüpfung. Matcht, wie wir es manuell machen. Vermeidet nebenbei die Rennbedingungen in Yorizons Provisionierung, die wir beobachtet haben, wenn zwei Unternehmens-Events im Sekundentakt ankommen.
+
+**Poll-Budget wieder bei T=30/60/120s pro Seite.** Zwei Seiten sequenziell ergibt ~245s Worst-Case — passt in Vercels 300s-`maxDuration`-Limit.
+
+**Progress-Indikator zeigt jetzt pro Seite**, welche Phase gerade läuft (z. B. „Partnerunternehmen wird angelegt" → „Yorizon richtet die Partner-Umgebung ein" → „Partner-Kontakt wird angelegt" → dann dasselbe für Kund:in).
+
+**Sequential per-side processing (EN).** Partner and customer are now run to completion one after the other — partner company fully done (create → wait → contact) before customer company even starts, then association at the end. Matches how this is done manually. Side benefit: avoids the race condition in Yorizon's provisioning we observed when two company-create events arrived ~1 second apart.
+
+**Poll budget back to T=30/60/120s per side.** Sequential × 2 sides = ~245s worst case — fits under Vercel's 300s `maxDuration` cap.
+
+**Progress indicator now per-side** (e.g. "Creating partner company" → "Waiting for Yorizon to provision the partner" → "Creating partner contact" → same for customer, then "Linking partner and customer").
+
+---
+
+## v1.0.13 (merged)
+
 **Countdown-Timer und paralleles Polling.** Die Wartezeit wird jetzt sichtbar — ein runder Countdown zaehlt die Sekunden bis zur naechsten Pruefung herunter, pro Wiederholung frisch. Partner und Kund:in werden parallel ueberwacht, sodass die Wall-Clock-Zeit bei beiden Seiten nicht verdoppelt wird.
 
 **Letztes Zeitfenster verdoppelt (T=30s, T=60s, T=240s).** Damit fangen wir auch die Faelle ab, in denen Yorizons Einrichtung ueber zwei Minuten braucht.
