@@ -55,6 +55,7 @@
   "poll.stage.associating": "Partner:in und Kund:in werden verknüpft…",
   "poll.retry": "Wiederholung {current}/{total}",
   "poll.nextCheckIn": "nächste Prüfung in {seconds}s",
+  "poll.stepOf": "Schritt {step} von {total}",
   "poll.error.timeout": "Yorizon hat die Einrichtung des Unternehmens nicht rechtzeitig abgeschlossen. Das Unternehmen wurde entfernt — bitte versuch es gleich nochmal.",
   "poll.error.creationFailed": "Yorizon meldet, dass die Einrichtung des Unternehmens fehlgeschlagen ist. Das Unternehmen wurde entfernt — bitte versuch es erneut und schau im Portal nach, falls das Problem weiter auftritt.",
   "poll.error.unexpectedState": "Yorizon hat einen unerwarteten Einrichtungsstatus zurückgegeben. Das Unternehmen wurde entfernt — bitte versuch es erneut und melde das Problem, falls es weiter auftritt.",

@@ -55,6 +55,7 @@
   "poll.stage.associating": "Linking partner and customer…",
   "poll.retry": "retry {current}/{total}",
   "poll.nextCheckIn": "next check in {seconds}s",
+  "poll.stepOf": "Step {step} of {total}",
   "poll.error.timeout": "Yorizon didn't finish provisioning the company in time. The company was removed — please try again in a moment.",
   "poll.error.creationFailed": "Yorizon reported that company provisioning failed. The company was removed — please try again, and check the portal if this keeps happening.",
   "poll.error.unexpectedState": "Yorizon returned an unexpected provisioning state. The company was removed — please try again, and flag this if it keeps happening.",
