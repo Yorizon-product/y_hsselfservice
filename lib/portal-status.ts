@@ -157,29 +157,36 @@ export async function pollCompanyReadiness(
     log(`[audit] poll ${i + 1}/${delays.length} company=${companyId} elapsed=${elapsedMs}ms status=${displayStatus} ${touched} class=${cls}`);
 
     if (cls === "success") return;
-    if (cls === "failed") {
-      log(`[audit] poll-result company=${companyId} decision=PORTAL_CREATION_FAILED raw=${displayStatus}`);
-      throw new PortalStatusError(
-        "PORTAL_CREATION_FAILED",
-        "Yorizon reported that company provisioning failed.",
-        raw
-      );
-    }
-    // pending or unexpected: keep polling if we have attempts left
+    // "failed", "unexpected", "pending": all keep polling. Yorizon's
+    // automation has been observed to first write "Company creation
+    // failed" and then retry internally, writing "Company created
+    // successfully" ~80s later. Short-circuiting on the first failure
+    // was causing our tool to give up before their retry completed.
+    // The final classification below decides which error code to surface
+    // if the full budget expires without a success.
   }
 
-  // Budget exhausted. Decide between timeout (never saw a message) and
-  // unexpected-state (saw a message but it wasn't in the allowlist).
+  // Budget exhausted. Surface the most specific error code based on the
+  // LAST status seen across all attempts.
   const parsed = parseStatus(lastRaw);
+  const finalCls = classifyStatus(parsed, companyCreatedAt);
   const finalElapsed = Date.now() - t0;
   const touched = lastModified && lastModified !== companyCreatedAt.toISOString()
     ? `touched@${lastModified}`
     : "never-touched";
-  if (parsed && classifyStatus(parsed, companyCreatedAt) === "unexpected") {
+  if (finalCls === "failed") {
+    log(`[audit] poll-result company=${companyId} decision=PORTAL_CREATION_FAILED elapsed=${finalElapsed}ms ${touched} raw="${lastRaw}"`);
+    throw new PortalStatusError(
+      "PORTAL_CREATION_FAILED",
+      "Yorizon reported that company provisioning failed.",
+      lastRaw
+    );
+  }
+  if (finalCls === "unexpected") {
     log(`[audit] poll-result company=${companyId} decision=PORTAL_UNEXPECTED_STATE elapsed=${finalElapsed}ms ${touched} raw="${lastRaw}"`);
     throw new PortalStatusError(
       "PORTAL_UNEXPECTED_STATE",
-      `Unexpected portal status after ${delays.length} attempts: ${parsed.message}`,
+      `Unexpected portal status after ${delays.length} attempts: ${parsed!.message}`,
       lastRaw
     );
   }
