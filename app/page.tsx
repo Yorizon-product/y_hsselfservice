@@ -117,9 +117,13 @@ function computeProgress(
   } else if (doCustomer) {
     inner = computeSideProgress(elapsedMs, "Customer");
   }
-  // Past all side phases — association (only when both sides present)
+  // Past the side phases — fall back to the LAST stage in the sequence.
+  // For partner-only: creatingPartnerContact. For customer-only:
+  // creatingCustomerContact. For both: associating. Avoids the bug where
+  // single-side flows would render "Linking partner and customer" when
+  // the partner phase ran past its time estimate.
   if (!inner) {
-    inner = { stage: "associating" };
+    inner = { stage: sequence[sequence.length - 1] ?? "associating" };
   }
   const idx = sequence.indexOf(inner.stage);
   return {
