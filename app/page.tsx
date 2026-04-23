@@ -139,24 +139,26 @@ type PortalErrorCode = typeof PORTAL_ERROR_CODES[number];
 function generateRandomCompany(userEmail: string | null, role: "partner" | "customer"): CompanyFields {
   const first = faker.person.firstName();
   const last = faker.person.lastName();
-  // Yorizon's provisioning automation rejects company names containing
-  // commas — empirically, every failed create in the portal's history
-  // had a comma-containing name from `faker.company.name()` picking its
-  // "{lastName}, {lastName} und {lastName}" format. Constructing a
-  // comma-free name from scratch avoids that roulette: single surname
-  // plus a suffix like "GmbH", "AG", "UG", "Gruppe".
+  // Company name includes the role tag ("PARTNER" or "CUSTOMER") as a
+  // suffix so you can tell at a glance in HubSpot which form slot a
+  // record came from — helpful when the sequential flow fails mid-way
+  // and only one of a pair shows up in the portal.
   const suffix = faker.helpers.arrayElement(["GmbH", "AG", "UG", "Gruppe", "KG"]);
-  const companyName = `${last} ${suffix}`;
+  const companyName = `${last} ${suffix} ${role.toUpperCase()}`;
   const slug = faker.string.alphanumeric(4);
-  // Keep the domain slug short too — even with a comma-free name,
-  // extremely long subdomain labels hit a separate provisioning limit.
+  // Keep the domain slug short — long subdomain labels may hit separate
+  // provisioning limits. Slugify the core name (without the role tag) so
+  // domains stay compact.
   const firstWord = faker.helpers
-    .slugify(companyName)
+    .slugify(`${last} ${suffix}`)
     .toLowerCase()
     .split("-")[0]
     .slice(0, 12);
   const domain = `${firstWord}-${slug}.example.com`;
-  const tag = `${faker.helpers.slugify(companyName).toLowerCase()}-${role}-${slug}`;
+  // Email tag leads with the role so the +alias in the inbox is
+  // immediately identifiable as partner vs customer, regardless of
+  // the trailing random slug.
+  const tag = `${role}-${firstWord}-${slug}`;
   let contactEmail: string;
   if (userEmail && userEmail.includes("@")) {
     const [localPart, domainPart] = userEmail.split("@");
