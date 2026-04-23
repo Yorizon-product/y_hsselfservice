@@ -157,7 +157,7 @@ export async function POST(req: NextRequest) {
 
       // Phase 1: Partner side
       if (partner) {
-        const partnerCompany = await createCompany(headers, partner.name, partner.domain, "PARTNER");
+        const partnerCompany = await createCompany(headers, partner.name, "PARTNER");
         createdIds.push({ type: "companies", id: partnerCompany.id, label: "partner_company" });
         await createNote(headers, noteBody, "companies", partnerCompany.id);
         created.push({
@@ -176,6 +176,18 @@ export async function POST(req: NextRequest) {
           );
         }
 
+        // Attach domain AFTER the provisioning poll succeeds — see the comment
+        // on createCompany for why this can't happen at create time. Best
+        // effort; if the update fails, the company+contact are still usable
+        // and we log rather than abort the whole flow.
+        if (partner.domain) {
+          try {
+            await patchCompanyDomain(headers, partnerCompany.id, partner.domain);
+          } catch (e: any) {
+            console.error(`[create] Domain patch failed for partner ${partnerCompany.id}: ${e.message}`);
+          }
+        }
+
         const partnerContact = await createContact(headers, partner.contact, partnerCompany.id, resolvedPartnerRole!);
         createdIds.push({ type: "contacts", id: partnerContact.id, label: "partner_contact" });
         await createNote(headers, noteBody, "contacts", partnerContact.id);
@@ -189,7 +201,7 @@ export async function POST(req: NextRequest) {
 
       // Phase 2: Customer side (only starts after partner fully completed)
       if (customer) {
-        const customerCompany = await createCompany(headers, customer.name, customer.domain, "CUSTOMER");
+        const customerCompany = await createCompany(headers, customer.name, "CUSTOMER");
         createdIds.push({ type: "companies", id: customerCompany.id, label: "customer_company" });
         await createNote(headers, noteBody, "companies", customerCompany.id);
         created.push({
@@ -206,6 +218,14 @@ export async function POST(req: NextRequest) {
             new Date(customerCompany.createdAt),
             (line) => console.log(`${line} side=customer`)
           );
+        }
+
+        if (customer.domain) {
+          try {
+            await patchCompanyDomain(headers, customerCompany.id, customer.domain);
+          } catch (e: any) {
+            console.error(`[create] Domain patch failed for customer ${customerCompany.id}: ${e.message}`);
+          }
         }
 
         const customerContact = await createContact(headers, customer.contact, customerCompany.id, resolvedCustomerRole!);
@@ -318,12 +338,32 @@ async function hubspotFetch(url: string, headers: Record<string, string>, body: 
 async function createCompany(
   headers: Record<string, string>,
   name: string,
-  domain: string,
   type: "PARTNER" | "CUSTOMER"
 ) {
+  // `domain` is intentionally NOT sent at create time. Yorizon's provisioning
+  // automation (integration 27850292) silently writes "Company creation failed"
+  // to portal_status_update when an integration-sourced company has a `domain`
+  // value at creation. Verified 2026-04-23 against the live portal:
+  //   - Create WITHOUT domain  → "Company created successfully"
+  //   - Create WITH domain     → "Company creation failed"
+  // The domain is attached separately after the poll confirms provisioning
+  // succeeded, via patchCompanyDomain — Yorizon re-fires on that update and
+  // accepts the domain at that point.
   const properties: Record<string, string> = { name, type };
-  if (domain) properties.domain = domain;
   return hubspotFetch(`${HUBSPOT_API}/crm/v3/objects/companies`, headers, { properties });
+}
+
+async function patchCompanyDomain(
+  headers: Record<string, string>,
+  companyId: string,
+  domain: string
+) {
+  return hubspotFetch(
+    `${HUBSPOT_API}/crm/v3/objects/companies/${companyId}`,
+    headers,
+    { properties: { domain } },
+    "PATCH"
+  );
 }
 
 async function createContact(
