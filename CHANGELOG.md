@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+**Root-Cause-Fix für Yorizons „Company creation failed".** Unter direkter Beobachtung festgestellt: Yorizons Provisionierungs-Automatik weist integrations-erstellte Unternehmen mit gesetztem `domain`-Feld im Create-Call ab — still, ohne Begründung. Dieselbe Integration akzeptiert die Domain als _Update_ direkt nach dem Create. Der Fix: Unternehmen werden jetzt ohne Domain angelegt, nach dem erfolgreichen Poll wird die Domain per `PATCH` auf das Record gesetzt. Yorizon feuert auf das Update und schreibt „Company updated successfully".
+
+**Root-cause fix for Yorizon's "Company creation failed" (EN).** Direct testing isolated the real blocker: Yorizon's provisioning automation silently rejects integration-created companies that have a `domain` populated at create time — and happily accepts the same domain as an _update_ immediately after. Fix: companies are now created with no `domain` field, and the domain is PATCHed on after the provisioning poll succeeds. Yorizon re-fires on the update and writes "Company updated successfully".
+
+---
+
+## v1.0.14 (merged)
+
 **Sequentielle Verarbeitung pro Seite.** Partner und Kund:in werden jetzt nacheinander durchgezogen — erst Partner-Unternehmen komplett (Anlegen → Warten → Kontakt), dann Kund:innen-Unternehmen komplett, dann erst die Verknüpfung. Matcht, wie wir es manuell machen. Vermeidet nebenbei die Rennbedingungen in Yorizons Provisionierung, die wir beobachtet haben, wenn zwei Unternehmens-Events im Sekundentakt ankommen.
 
 **Poll-Budget wieder bei T=30/60/120s pro Seite.** Zwei Seiten sequenziell ergibt ~245s Worst-Case — passt in Vercels 300s-`maxDuration`-Limit.
