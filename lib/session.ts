@@ -7,6 +7,14 @@ export type SessionData = {
   expiresAt?: number; // Unix timestamp (ms)
   portalId?: string;
   userEmail?: string;
+  // HubSpot numeric user ID for the OAuth-authenticating user. Passed as
+  // `hubspot_owner_id` when creating companies — Yorizon's provisioning
+  // automation (integration 27850292) silently rejects integration-sourced
+  // companies whose owner is null. Captured at OAuth callback from the
+  // /oauth/v1/access-tokens/{token} response's `user_id` field; also
+  // lazy-populated in the create route for sessions that pre-date this
+  // code.
+  hubspotOwnerId?: string;
   oauthState?: string;
 };
 

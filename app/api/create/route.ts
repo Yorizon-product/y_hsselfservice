@@ -56,6 +56,32 @@ export async function POST(req: NextRequest) {
 
     const session = await getSession();
 
+    // Lazy-populate hubspotOwnerId for sessions that pre-date the owner-capture
+    // code in app/api/auth/callback/route.ts. Skips the lookup if already
+    // cached. Cheap: one GET to HubSpot's token-info endpoint.
+    if (!session.hubspotOwnerId) {
+      try {
+        const tokenInfoRes = await fetch(
+          `https://api.hubapi.com/oauth/v1/access-tokens/${token}`
+        );
+        if (tokenInfoRes.ok) {
+          const info = await tokenInfoRes.json();
+          if (info.user_id) {
+            session.hubspotOwnerId = String(info.user_id);
+            await session.save();
+          }
+        }
+      } catch {
+        // Non-critical — createCompany will fail loudly below if owner is missing
+      }
+    }
+    if (!session.hubspotOwnerId) {
+      return NextResponse.json(
+        { error: "Could not resolve your HubSpot user ID. Disconnect and reconnect, then try again." },
+        { status: 400 }
+      );
+    }
+
     const body = await req.json();
     const {
       partner,
@@ -157,7 +183,7 @@ export async function POST(req: NextRequest) {
 
       // Phase 1: Partner side
       if (partner) {
-        const partnerCompany = await createCompany(headers, partner.name, "PARTNER");
+        const partnerCompany = await createCompany(headers, partner.name, "PARTNER", session.hubspotOwnerId!);
         createdIds.push({ type: "companies", id: partnerCompany.id, label: "partner_company" });
         await createNote(headers, noteBody, "companies", partnerCompany.id);
         created.push({
@@ -201,7 +227,7 @@ export async function POST(req: NextRequest) {
 
       // Phase 2: Customer side (only starts after partner fully completed)
       if (customer) {
-        const customerCompany = await createCompany(headers, customer.name, "CUSTOMER");
+        const customerCompany = await createCompany(headers, customer.name, "CUSTOMER", session.hubspotOwnerId!);
         createdIds.push({ type: "companies", id: customerCompany.id, label: "customer_company" });
         await createNote(headers, noteBody, "companies", customerCompany.id);
         created.push({
@@ -338,18 +364,21 @@ async function hubspotFetch(url: string, headers: Record<string, string>, body: 
 async function createCompany(
   headers: Record<string, string>,
   name: string,
-  type: "PARTNER" | "CUSTOMER"
+  type: "PARTNER" | "CUSTOMER",
+  ownerId: string
 ) {
-  // `domain` is intentionally NOT sent at create time. Yorizon's provisioning
-  // automation (integration 27850292) silently writes "Company creation failed"
-  // to portal_status_update when an integration-sourced company has a `domain`
-  // value at creation. Verified 2026-04-23 against the live portal:
-  //   - Create WITHOUT domain  → "Company created successfully"
-  //   - Create WITH domain     → "Company creation failed"
+  // Yorizon's provisioning automation (integration 27850292) requires BOTH:
+  //   1. `hubspot_owner_id` set to a real HubSpot user ID
+  //   2. NO `domain` field at create time
+  // Controlled Private-App POSTs against the live portal 2026-04-23 gave:
+  //   owner=no,  domain=no   → "Company creation failed"
+  //   owner=no,  domain=yes  → "Company creation failed"
+  //   owner=yes, domain=no   → "Company created successfully" ✓
+  //   owner=yes, domain=yes  → "Company creation failed"
   // The domain is attached separately after the poll confirms provisioning
   // succeeded, via patchCompanyDomain — Yorizon re-fires on that update and
-  // accepts the domain at that point.
-  const properties: Record<string, string> = { name, type };
+  // writes "Company updated successfully".
+  const properties: Record<string, string> = { name, type, hubspot_owner_id: ownerId };
   return hubspotFetch(`${HUBSPOT_API}/crm/v3/objects/companies`, headers, { properties });
 }
 

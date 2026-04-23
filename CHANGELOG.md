@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+**Owner wird jetzt gesetzt** (Fix für „Company creation failed" — Teil 2). v1.0.15 hatte nur die Hälfte der Arbeit erledigt: Domain wird zwar nicht mehr beim Create gesendet, aber Yorizons Automatik braucht auch `hubspot_owner_id` gesetzt. Wir holen die HubSpot-User-ID jetzt aus dem OAuth-Token-Info und geben sie beim Company-Create mit.
+
+**Owner is now set on create (EN) — Part 2 of the "Company creation failed" fix.** v1.0.15 only did half the job: omitting the domain was necessary but not sufficient. Yorizon's automation requires `hubspot_owner_id` to be set too. We now pull the HubSpot user ID from the OAuth token-info response (captured at login; lazy-loaded for pre-existing sessions) and include it in the create payload.
+
+---
+
+## v1.0.15 (merged)
+
 **Root-Cause-Fix für Yorizons „Company creation failed".** Unter direkter Beobachtung festgestellt: Yorizons Provisionierungs-Automatik weist integrations-erstellte Unternehmen mit gesetztem `domain`-Feld im Create-Call ab — still, ohne Begründung. Dieselbe Integration akzeptiert die Domain als _Update_ direkt nach dem Create. Der Fix: Unternehmen werden jetzt ohne Domain angelegt, nach dem erfolgreichen Poll wird die Domain per `PATCH` auf das Record gesetzt. Yorizon feuert auf das Update und schreibt „Company updated successfully".
 
 **Root-cause fix for Yorizon's "Company creation failed" (EN).** Direct testing isolated the real blocker: Yorizon's provisioning automation silently rejects integration-created companies that have a `domain` populated at create time — and happily accepts the same domain as an _update_ immediately after. Fix: companies are now created with no `domain` field, and the domain is PATCHed on after the provisioning poll succeeds. Yorizon re-fires on the update and writes "Company updated successfully".

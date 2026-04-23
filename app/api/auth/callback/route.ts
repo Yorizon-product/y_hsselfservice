@@ -64,6 +64,7 @@ export async function GET(req: NextRequest) {
     if (tokenInfo.ok) {
       const info = await tokenInfo.json();
       if (info.user) session.userEmail = info.user;
+      if (info.user_id) session.hubspotOwnerId = String(info.user_id);
     }
   } catch {
     // Non-critical
