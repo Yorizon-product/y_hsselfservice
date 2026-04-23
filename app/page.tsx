@@ -28,10 +28,22 @@ type ProgressStage =
   | "associating";
 type Progress = {
   stage: ProgressStage;
+  step: number;        // 1-indexed step in the active flow
+  totalSteps: number;  // depends on which sides are selected
   retry?: { current: number; total: number };
   secondsUntilNextCheck?: number;
   windowProgress?: number;
 };
+
+// Compute the ordered list of stages for the current configuration. Lets us
+// derive "Step X of N" without hardcoding offsets per stage.
+function stageSequence(doPartner: boolean, doCustomer: boolean): ProgressStage[] {
+  const steps: ProgressStage[] = [];
+  if (doPartner) steps.push("creatingPartnerCompany", "waitingPartnerProvisioning", "creatingPartnerContact");
+  if (doCustomer) steps.push("creatingCustomerCompany", "waitingCustomerProvisioning", "creatingCustomerContact");
+  if (doPartner && doCustomer) steps.push("associating");
+  return steps;
+}
 
 // Stage boundaries match the sequential per-side flow in app/api/create/route.ts
 // and the default delays in lib/portal-status.ts ([30s, 30s, 60s] per side).
@@ -42,10 +54,14 @@ const POLL_WINDOW_2_MS = 30_000;
 const POLL_WINDOW_3_MS = 60_000;
 const SIDE_TOTAL_MS = CREATE_COMPANY_MS + POLL_WINDOW_1_MS + POLL_WINDOW_2_MS + POLL_WINDOW_3_MS + CREATE_CONTACT_MS;
 
+// Partial progress (without step/totalSteps) — the outer computeProgress
+// fills those in based on the active side configuration.
+type SideProgress = Omit<Progress, "step" | "totalSteps">;
+
 function computeSideProgress(
   sideElapsedMs: number,
   sidePrefix: "Partner" | "Customer"
-): Progress | null {
+): SideProgress | null {
   const companyStage = `creating${sidePrefix}Company` as ProgressStage;
   const waitingStage = `waiting${sidePrefix}Provisioning` as ProgressStage;
   const contactStage = `creating${sidePrefix}Contact` as ProgressStage;
@@ -91,20 +107,26 @@ function computeProgress(
   doPartner: boolean,
   doCustomer: boolean
 ): Progress | null {
+  const sequence = stageSequence(doPartner, doCustomer);
+  let inner: SideProgress | null = null;
   if (doPartner) {
-    const partnerProgress = computeSideProgress(elapsedMs, "Partner");
-    if (partnerProgress) return partnerProgress;
-    // Partner side finished. Customer starts from here.
-    if (doCustomer) {
-      const customerProgress = computeSideProgress(elapsedMs - SIDE_TOTAL_MS, "Customer");
-      if (customerProgress) return customerProgress;
+    inner = computeSideProgress(elapsedMs, "Partner");
+    if (!inner && doCustomer) {
+      inner = computeSideProgress(elapsedMs - SIDE_TOTAL_MS, "Customer");
     }
   } else if (doCustomer) {
-    const customerProgress = computeSideProgress(elapsedMs, "Customer");
-    if (customerProgress) return customerProgress;
+    inner = computeSideProgress(elapsedMs, "Customer");
   }
-  // Past both phases — association (brief)
-  return { stage: "associating" };
+  // Past all side phases — association (only when both sides present)
+  if (!inner) {
+    inner = { stage: "associating" };
+  }
+  const idx = sequence.indexOf(inner.stage);
+  return {
+    ...inner,
+    step: idx >= 0 ? idx + 1 : sequence.length,
+    totalSteps: sequence.length,
+  };
 }
 
 const PORTAL_ERROR_CODES = ["PORTAL_TIMEOUT", "PORTAL_CREATION_FAILED", "PORTAL_UNEXPECTED_STATE"] as const;
@@ -565,7 +587,6 @@ function ProgressIndicator({ progress, t }: { progress: Progress; t: TFunc }) {
     : null;
 
   // SVG ring: circumference = 2 * π * r. r=20 → C ≈ 125.66.
-  // Fill from 0 (empty) to C (full) via strokeDashoffset.
   const RADIUS = 20;
   const CIRC = 2 * Math.PI * RADIUS;
   const fillFraction = isWaiting && progress.windowProgress !== undefined ? progress.windowProgress : 0;
@@ -573,47 +594,71 @@ function ProgressIndicator({ progress, t }: { progress: Progress; t: TFunc }) {
 
   return (
     <div
-      className="mt-4 flex items-center gap-3 px-3 py-3 rounded-lg bg-muted/50 border border-border"
+      className="mt-4 px-3 py-3 rounded-lg bg-muted/50 border border-border"
       role="status"
       aria-live="polite"
     >
-      {isWaiting ? (
-        <div className="relative w-12 h-12 shrink-0">
-          <svg className="w-12 h-12 -rotate-90" viewBox="0 0 48 48" aria-hidden="true">
-            <circle cx="24" cy="24" r={RADIUS} fill="none" stroke="currentColor" strokeWidth="3" className="text-border" />
-            <circle
-              cx="24"
-              cy="24"
-              r={RADIUS}
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="3"
-              strokeDasharray={CIRC}
-              strokeDashoffset={dashOffset}
-              strokeLinecap="round"
-              className="text-primary transition-all duration-250 ease-linear"
-            />
-          </svg>
-          <div className="absolute inset-0 flex items-center justify-center">
-            <span className="text-xs font-mono font-semibold tabular-nums text-foreground">
-              {progress.secondsUntilNextCheck ?? 0}
-              <span className="text-[0.6em] text-muted-foreground">s</span>
-            </span>
+      {/* Step header: "Step X of N" above the stage row */}
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-[0.7rem] font-mono uppercase tracking-wider text-muted-foreground">
+          {t("poll.stepOf" as TranslationKey, { step: progress.step, total: progress.totalSteps })}
+        </span>
+        {/* Horizontal step pips */}
+        <div className="flex items-center gap-1">
+          {Array.from({ length: progress.totalSteps }).map((_, i) => {
+            const isDone = i + 1 < progress.step;
+            const isCurrent = i + 1 === progress.step;
+            return (
+              <div
+                key={i}
+                className={`w-1.5 h-1.5 rounded-full transition-colors ${
+                  isDone ? "bg-primary" : isCurrent ? "bg-primary animate-pulse" : "bg-border"
+                }`}
+                aria-hidden="true"
+              />
+            );
+          })}
+        </div>
+      </div>
+      <div className="flex items-center gap-3">
+        {isWaiting ? (
+          <div className="relative w-12 h-12 shrink-0">
+            <svg className="w-12 h-12 -rotate-90" viewBox="0 0 48 48" aria-hidden="true">
+              <circle cx="24" cy="24" r={RADIUS} fill="none" stroke="currentColor" strokeWidth="3" className="text-border" />
+              <circle
+                cx="24"
+                cy="24"
+                r={RADIUS}
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="3"
+                strokeDasharray={CIRC}
+                strokeDashoffset={dashOffset}
+                strokeLinecap="round"
+                className="text-primary transition-all duration-250 ease-linear"
+              />
+            </svg>
+            <div className="absolute inset-0 flex items-center justify-center">
+              <span className="text-xs font-mono font-semibold tabular-nums text-foreground">
+                {progress.secondsUntilNextCheck ?? 0}
+                <span className="text-[0.6em] text-muted-foreground">s</span>
+              </span>
+            </div>
           </div>
-        </div>
-      ) : (
-        <div className="w-12 h-12 shrink-0 flex items-center justify-center">
-          <div className="w-3 h-3 rounded-full bg-primary animate-pulse" />
-        </div>
-      )}
-      <div className="flex-1 min-w-0">
-        <div className="text-sm font-medium text-foreground">{label}</div>
-        {isWaiting && (
-          <div className="text-xs font-mono text-muted-foreground mt-0.5">
-            {retryLabel ? <>{retryLabel} · </> : null}
-            {t("poll.nextCheckIn" as TranslationKey, { seconds: progress.secondsUntilNextCheck ?? 0 })}
+        ) : (
+          <div className="w-12 h-12 shrink-0 flex items-center justify-center">
+            <div className="w-3 h-3 rounded-full bg-primary animate-pulse" />
           </div>
         )}
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-medium text-foreground">{label}</div>
+          {isWaiting && (
+            <div className="text-xs font-mono text-muted-foreground mt-0.5">
+              {retryLabel ? <>{retryLabel} · </> : null}
+              {t("poll.nextCheckIn" as TranslationKey, { seconds: progress.secondsUntilNextCheck ?? 0 })}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
