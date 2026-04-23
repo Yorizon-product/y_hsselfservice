@@ -1,6 +1,6 @@
 {
   "name": "y_hsselfservice",
-  "version": "1.0.18",
+  "version": "1.0.19",
   "private": true,
   "scripts": {
     "prepare": "cp scripts/bump-version.sh .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit",
