@@ -89,7 +89,7 @@ type Logger = (line: string) => void;
 
 type PollOptions = {
   // Incremental sleep before each attempt, in milliseconds. Defaults to
-  // [30_000, 30_000, 180_000] → cumulative T=30s, T=60s, T=240s from the
+  // [30_000, 30_000, 60_000] → cumulative T=30s, T=60s, T=120s from the
   // moment the company was created. Overridable for tests.
   delaysMs?: number[];
   // Injectable fetch for testing.
@@ -99,7 +99,9 @@ type PollOptions = {
 };
 
 // Exposed so the client can compute its countdown in lockstep with the server.
-export const DEFAULT_POLL_DELAYS_MS = [30_000, 30_000, 180_000] as const;
+// Sequential per-side flow means 2 × 120s = 240s worst case, fits under
+// Vercel's 300s maxDuration cap with headroom.
+export const DEFAULT_POLL_DELAYS_MS = [30_000, 30_000, 60_000] as const;
 
 const defaultSleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 

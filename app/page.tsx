@@ -19,70 +19,92 @@ type Mode = "simple" | "advanced";
 type Theme = "system" | "light" | "dark";
 
 type ProgressStage =
-  | "creatingCompanies"
-  | "waitingProvisioning"
-  | "creatingContacts";
+  | "creatingPartnerCompany"
+  | "waitingPartnerProvisioning"
+  | "creatingPartnerContact"
+  | "creatingCustomerCompany"
+  | "waitingCustomerProvisioning"
+  | "creatingCustomerContact"
+  | "associating";
 type Progress = {
   stage: ProgressStage;
   retry?: { current: number; total: number };
-  // For waiting stages: seconds until the next server-side status check.
-  // Counts down from the full window length to 0.
   secondsUntilNextCheck?: number;
-  // Fraction of the current waiting window elapsed, 0..1.
-  // Drives the progress-ring fill so it visually advances even during the
-  // final long 180s window.
   windowProgress?: number;
 };
 
-// Stage boundaries match the parallel-polling flow in app/api/create/route.ts
-// and the default delays in lib/portal-status.ts ([30s, 30s, 180s]).
-const CREATE_PHASE_MS = 1_500;    // Create both companies (sequential, quick)
-const POLL_WINDOW_1_MS = 30_000;  // Wait to T=30s for first status check
-const POLL_WINDOW_2_MS = 30_000;  // Then +30s to T=60s (retry 1/2)
-const POLL_WINDOW_3_MS = 180_000; // Then +180s to T=240s (retry 2/2)
-const POLL_TOTAL_MS = POLL_WINDOW_1_MS + POLL_WINDOW_2_MS + POLL_WINDOW_3_MS;
+// Stage boundaries match the sequential per-side flow in app/api/create/route.ts
+// and the default delays in lib/portal-status.ts ([30s, 30s, 60s] per side).
+const CREATE_COMPANY_MS = 1_000;
+const CREATE_CONTACT_MS = 1_000;
+const POLL_WINDOW_1_MS = 30_000;
+const POLL_WINDOW_2_MS = 30_000;
+const POLL_WINDOW_3_MS = 60_000;
+const SIDE_TOTAL_MS = CREATE_COMPANY_MS + POLL_WINDOW_1_MS + POLL_WINDOW_2_MS + POLL_WINDOW_3_MS + CREATE_CONTACT_MS;
 
-function computeProgress(elapsedMs: number): Progress | null {
-  // Phase 1: creating companies
-  if (elapsedMs < CREATE_PHASE_MS) return { stage: "creatingCompanies" };
+function computeSideProgress(
+  sideElapsedMs: number,
+  sidePrefix: "Partner" | "Customer"
+): Progress | null {
+  const companyStage = `creating${sidePrefix}Company` as ProgressStage;
+  const waitingStage = `waiting${sidePrefix}Provisioning` as ProgressStage;
+  const contactStage = `creating${sidePrefix}Contact` as ProgressStage;
 
-  const pollElapsed = elapsedMs - CREATE_PHASE_MS;
+  if (sideElapsedMs < CREATE_COMPANY_MS) return { stage: companyStage };
 
-  // Phase 2: waiting for provisioning — split into three windows matching the
-  // server-side poll schedule. Each window gets its own countdown + retry label.
+  const pollElapsed = sideElapsedMs - CREATE_COMPANY_MS;
   if (pollElapsed < POLL_WINDOW_1_MS) {
     const remaining = POLL_WINDOW_1_MS - pollElapsed;
     return {
-      stage: "waitingProvisioning",
+      stage: waitingStage,
       secondsUntilNextCheck: Math.max(0, Math.ceil(remaining / 1000)),
       windowProgress: pollElapsed / POLL_WINDOW_1_MS,
     };
   }
-
-  const afterWindow1 = pollElapsed - POLL_WINDOW_1_MS;
-  if (afterWindow1 < POLL_WINDOW_2_MS) {
-    const remaining = POLL_WINDOW_2_MS - afterWindow1;
+  const afterW1 = pollElapsed - POLL_WINDOW_1_MS;
+  if (afterW1 < POLL_WINDOW_2_MS) {
+    const remaining = POLL_WINDOW_2_MS - afterW1;
     return {
-      stage: "waitingProvisioning",
+      stage: waitingStage,
       retry: { current: 1, total: 2 },
       secondsUntilNextCheck: Math.max(0, Math.ceil(remaining / 1000)),
-      windowProgress: afterWindow1 / POLL_WINDOW_2_MS,
+      windowProgress: afterW1 / POLL_WINDOW_2_MS,
     };
   }
-
-  const afterWindow2 = afterWindow1 - POLL_WINDOW_2_MS;
-  if (afterWindow2 < POLL_WINDOW_3_MS) {
-    const remaining = POLL_WINDOW_3_MS - afterWindow2;
+  const afterW2 = afterW1 - POLL_WINDOW_2_MS;
+  if (afterW2 < POLL_WINDOW_3_MS) {
+    const remaining = POLL_WINDOW_3_MS - afterW2;
     return {
-      stage: "waitingProvisioning",
+      stage: waitingStage,
       retry: { current: 2, total: 2 },
       secondsUntilNextCheck: Math.max(0, Math.ceil(remaining / 1000)),
-      windowProgress: afterWindow2 / POLL_WINDOW_3_MS,
+      windowProgress: afterW2 / POLL_WINDOW_3_MS,
     };
   }
+  const afterPoll = afterW2 - POLL_WINDOW_3_MS;
+  if (afterPoll < CREATE_CONTACT_MS) return { stage: contactStage };
+  return null;
+}
 
-  // Phase 3: creating contacts (+ association). Polling is done.
-  return { stage: "creatingContacts" };
+function computeProgress(
+  elapsedMs: number,
+  doPartner: boolean,
+  doCustomer: boolean
+): Progress | null {
+  if (doPartner) {
+    const partnerProgress = computeSideProgress(elapsedMs, "Partner");
+    if (partnerProgress) return partnerProgress;
+    // Partner side finished. Customer starts from here.
+    if (doCustomer) {
+      const customerProgress = computeSideProgress(elapsedMs - SIDE_TOTAL_MS, "Customer");
+      if (customerProgress) return customerProgress;
+    }
+  } else if (doCustomer) {
+    const customerProgress = computeSideProgress(elapsedMs, "Customer");
+    if (customerProgress) return customerProgress;
+  }
+  // Past both phases — association (brief)
+  return { stage: "associating" };
 }
 
 const PORTAL_ERROR_CODES = ["PORTAL_TIMEOUT", "PORTAL_CREATION_FAILED", "PORTAL_UNEXPECTED_STATE"] as const;
@@ -253,14 +275,16 @@ export default function Home() {
     setLoading(true); setError(null); setResults(null);
     const activePartner = isAdvanced && !partnerEnabled ? null : partner;
     const activeCustomer = isAdvanced && !customerEnabled ? null : customer;
+    const doPartner = !!activePartner;
+    const doCustomer = !!activeCustomer;
     progressStartRef.current = performance.now();
-    setProgress(computeProgress(0));
+    setProgress(computeProgress(0, doPartner, doCustomer));
     if (progressTickRef.current) clearInterval(progressTickRef.current);
     // 250ms tick keeps the per-second countdown readable without
     // over-rendering. The progress ring is CSS-animated, not JS-driven.
     progressTickRef.current = setInterval(() => {
       const elapsed = performance.now() - progressStartRef.current;
-      setProgress(computeProgress(elapsed));
+      setProgress(computeProgress(elapsed, doPartner, doCustomer));
     }, 250);
     try {
       const idempotencyKey = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -534,7 +558,7 @@ export default function Home() {
 type TFunc = (key: TranslationKey, vars?: Record<string, string | number>) => string;
 
 function ProgressIndicator({ progress, t }: { progress: Progress; t: TFunc }) {
-  const isWaiting = progress.stage === "waitingProvisioning";
+  const isWaiting = progress.stage === "waitingPartnerProvisioning" || progress.stage === "waitingCustomerProvisioning";
   const label = t(("poll.stage." + progress.stage) as TranslationKey);
   const retryLabel = progress.retry
     ? t("poll.retry" as TranslationKey, { current: progress.retry.current, total: progress.retry.total })
