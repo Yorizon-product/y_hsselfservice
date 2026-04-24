@@ -117,13 +117,20 @@ export async function POST(req: NextRequest) {
   try {
     const company = await createCompany(headers, payload.name, sideUpper, session.hubspotOwnerId!);
     createdIds.push({ type: "companies", id: company.id, label: `${side}_company` });
-    await createNote(headers, noteBody, "companies", company.id);
     created.push({
       type: side === "partner" ? "Partner Company" : "Customer Company",
       id: company.id,
       name: payload.name,
       url: hubspotRecordUrl(portalId, "company", company.id),
     });
+    // Best-effort: a failed/slow note shouldn't block the poll or the
+    // rest of the flow. The note carries attribution but the
+    // company+contact are usable without it.
+    try {
+      await createNote(headers, noteBody, "companies", company.id);
+    } catch (e: any) {
+      console.error(`[create/side] Company note failed for ${side} ${company.id}: ${e.message}`);
+    }
 
     if (PORTAL_STATUS_POLL_ENABLED) {
       await pollCompanyReadiness(
@@ -148,13 +155,20 @@ export async function POST(req: NextRequest) {
 
     const contact = await createContact(headers, payload.contact, company.id, resolvedRole);
     createdIds.push({ type: "contacts", id: contact.id, label: `${side}_contact` });
-    await createNote(headers, noteBody, "contacts", contact.id);
+    // Push the Contact entry BEFORE attempting the note. If the note
+    // call hangs or fails, the client still gets the Contact in the
+    // response and the UI won't appear stuck on 'creating contact'.
     created.push({
       type: side === "partner" ? "Partner Contact" : "Customer Contact",
       id: contact.id,
       name: `${payload.contact.firstname} ${payload.contact.lastname}`.trim() || payload.contact.email,
       url: hubspotRecordUrl(portalId, "contact", contact.id),
     });
+    try {
+      await createNote(headers, noteBody, "contacts", contact.id);
+    } catch (e: any) {
+      console.error(`[create/side] Contact note failed for ${side} ${contact.id}: ${e.message}`);
+    }
 
     console.log(`[audit] ${createdBy} created ${side} entities: ${created.map(c => `${c.type}(${c.id})`).join(", ")}`);
     // `trackedIds` lets the client call /api/create/rollback if a LATER

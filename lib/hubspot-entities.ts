@@ -39,6 +39,13 @@ export function hubspotRecordUrl(
     : `#${kind}-${id}`;
 }
 
+// Per-call timeout for HubSpot CRUD. Far longer than any healthy HubSpot
+// response (p99 well under 5s) but short enough that a hung call can't
+// burn the entire 300s Vercel invocation. The polling loop in
+// lib/portal-status.ts uses raw fetch and its own 60s+ windows — this
+// only applies to non-poll CRUD primitives.
+const HUBSPOT_CALL_TIMEOUT_MS = 30_000;
+
 async function hubspotFetch(
   url: string,
   headers: Record<string, string>,
@@ -46,11 +53,24 @@ async function hubspotFetch(
   method: string = "POST",
   fetchImpl: FetchImpl = fetch
 ) {
-  const res = await fetchImpl(url, {
-    method,
-    headers,
-    body: JSON.stringify(body),
-  });
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), HUBSPOT_CALL_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetchImpl(url, {
+      method,
+      headers,
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } catch (e: any) {
+    if (e?.name === "AbortError") {
+      throw new Error(`HubSpot API timeout after ${HUBSPOT_CALL_TIMEOUT_MS}ms: ${method} ${url}`);
+    }
+    throw e;
+  } finally {
+    clearTimeout(t);
+  }
   const text = await res.text();
   let data: any;
   try {
