@@ -12,7 +12,7 @@
 
 services:
   hsselfservice:
-    image: ghcr.io/yorizon-product/y_hsselfservice:${IMAGE_TAG:-main}
+    image: ghcr.io/yorizon-product/y_hsselfservice:${IMAGE_TAG:-master}
     container_name: hsselfservice
     restart: unless-stopped
     env_file:
