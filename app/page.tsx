@@ -106,28 +106,29 @@ function computeSideProgress(
   return null;
 }
 
+type Phase = "partner" | "customer" | "associate";
+
+// `elapsedInPhaseMs` is time since the CURRENT phase started, not since
+// submit — the client resets its clock at each phase transition so the
+// UI snaps forward when a side completes early. `phase` is the real
+// server phase the client is awaiting, driven by which /api/create/side
+// call is in flight.
 function computeProgress(
-  elapsedMs: number,
+  elapsedInPhaseMs: number,
+  phase: Phase,
   doPartner: boolean,
   doCustomer: boolean
 ): Progress | null {
   const sequence = stageSequence(doPartner, doCustomer);
   let inner: SideProgress | null = null;
-  if (doPartner) {
-    inner = computeSideProgress(elapsedMs, "Partner");
-    if (!inner && doCustomer) {
-      inner = computeSideProgress(elapsedMs - SIDE_TOTAL_MS, "Customer");
-    }
-  } else if (doCustomer) {
-    inner = computeSideProgress(elapsedMs, "Customer");
-  }
-  // Past the side phases — fall back to the LAST stage in the sequence.
-  // For partner-only: creatingPartnerContact. For customer-only:
-  // creatingCustomerContact. For both: associating. Avoids the bug where
-  // single-side flows would render "Linking partner and customer" when
-  // the partner phase ran past its time estimate.
-  if (!inner) {
-    inner = { stage: sequence[sequence.length - 1] ?? "associating" };
+  if (phase === "partner") {
+    inner = computeSideProgress(elapsedInPhaseMs, "Partner");
+    if (!inner) inner = { stage: "creatingPartnerContact" };
+  } else if (phase === "customer") {
+    inner = computeSideProgress(elapsedInPhaseMs, "Customer");
+    if (!inner) inner = { stage: "creatingCustomerContact" };
+  } else {
+    inner = { stage: "associating" };
   }
   const idx = sequence.indexOf(inner.stage);
   return {
@@ -230,6 +231,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<Progress | null>(null);
   const progressStartRef = useRef<number>(0);
+  const progressPhaseRef = useRef<Phase>("partner");
   const progressTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const { theme, cycle: cycleTheme } = useTheme();
@@ -313,15 +315,25 @@ export default function Home() {
     const activeCustomer = isAdvanced && !customerEnabled ? null : customer;
     const doPartner = !!activePartner;
     const doCustomer = !!activeCustomer;
+    // Progress clock is phase-local: reset on each phase transition so
+    // the UI snaps forward when a side completes earlier than the
+    // worst-case budget would predict.
     progressStartRef.current = performance.now();
-    setProgress(computeProgress(0, doPartner, doCustomer));
+    progressPhaseRef.current = doPartner ? "partner" : "customer";
+    setProgress(computeProgress(0, progressPhaseRef.current, doPartner, doCustomer));
     if (progressTickRef.current) clearInterval(progressTickRef.current);
     // 250ms tick keeps the per-second countdown readable without
     // over-rendering. The progress ring is CSS-animated, not JS-driven.
     progressTickRef.current = setInterval(() => {
       const elapsed = performance.now() - progressStartRef.current;
-      setProgress(computeProgress(elapsed, doPartner, doCustomer));
+      setProgress(computeProgress(elapsed, progressPhaseRef.current, doPartner, doCustomer));
     }, 250);
+
+    const advancePhase = (next: Phase) => {
+      progressPhaseRef.current = next;
+      progressStartRef.current = performance.now();
+      setProgress(computeProgress(0, next, doPartner, doCustomer));
+    };
 
     // Accumulators across the (up to) three phase calls. If a later
     // phase fails, we POST these to /api/create/rollback so the user
@@ -396,9 +408,16 @@ export default function Home() {
     };
 
     try {
-      if (doPartner) await callSide("partner", activePartner!);
+      if (doPartner) {
+        await callSide("partner", activePartner!);
+        // Partner finished; advance the client clock so the UI doesn't
+        // linger on "waiting for partner" while the customer call is
+        // already in flight.
+        if (doCustomer) advancePhase("customer");
+      }
       if (doCustomer) await callSide("customer", activeCustomer!);
       if (doPartner && doCustomer) {
+        advancePhase("associate");
         const partnerCompanyId = allTrackedIds.find(t => t.label === "partner_company")?.id;
         const customerCompanyId = allTrackedIds.find(t => t.label === "customer_company")?.id;
         if (!partnerCompanyId || !customerCompanyId) {
