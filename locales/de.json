@@ -80,5 +80,12 @@
 
   "language.switch": "Sprache: Deutsch. Klicken zum Wechseln.",
 
-  "loading": "Laden..."
+  "loading": "Laden...",
+
+  "notify.success.title": "HubSpot-Entitäten erstellt",
+  "notify.success.body.partner": "Partner-Unternehmen + Kontakt sind bereit.",
+  "notify.success.body.customer": "Kund:innen-Unternehmen + Kontakt sind bereit.",
+  "notify.success.body.both": "Partner:in und Kund:in sind bereit und verknüpft.",
+  "notify.error.title": "HubSpot-Erstellung fehlgeschlagen",
+  "notify.error.body": "{message}"
 }

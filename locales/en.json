@@ -80,5 +80,12 @@
 
   "language.switch": "Language: English. Click to switch.",
 
-  "loading": "Loading..."
+  "loading": "Loading...",
+
+  "notify.success.title": "HubSpot entities created",
+  "notify.success.body.partner": "Partner company + contact are ready.",
+  "notify.success.body.customer": "Customer company + contact are ready.",
+  "notify.success.body.both": "Partner and customer are ready and linked.",
+  "notify.error.title": "HubSpot creation failed",
+  "notify.error.body": "{message}"
 }

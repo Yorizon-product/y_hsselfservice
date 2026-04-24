@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { faker } from "@faker-js/faker/locale/de";
 import { useTranslation } from "@/lib/i18n";
 import type { TranslationKey } from "@/lib/i18n";
+import { ensurePermission, notify } from "@/lib/notifications";
 
 import packageJson from "../package.json";
 const APP_VERSION = packageJson.version;
@@ -300,6 +301,10 @@ export default function Home() {
 
   const handleSubmit = async () => {
     if (loading) return;
+    // Fire-and-forget permission prompt — never blocks submit. Ties the
+    // browser prompt to an explicit user action (the click) instead of
+    // page load, which browsers heavily penalize.
+    void ensurePermission();
     setLoading(true); setError(null); setResults(null);
     const activePartner = isAdvanced && !partnerEnabled ? null : partner;
     const activeCustomer = isAdvanced && !customerEnabled ? null : customer;
@@ -336,9 +341,18 @@ export default function Home() {
       }
       setResults(data.created);
       setPartner(emptyCompany()); setCustomer(emptyCompany());
+      // Only fires when the tab is hidden — see lib/notifications.ts.
+      const bodyKey: TranslationKey =
+        doPartner && doCustomer ? "notify.success.body.both"
+        : doPartner ? "notify.success.body.partner"
+        : "notify.success.body.customer";
+      notify({ title: t("notify.success.title"), body: t(bodyKey) });
     } catch (e: any) {
       const code = PORTAL_ERROR_CODES.includes(e.code) ? (e.code as PortalErrorCode) : undefined;
       const base = friendlyError(e.message, code);
+      // Notification body uses the clean friendly message — no rawStatus,
+      // no kept-URL debug block. Those stay inline-only.
+      notify({ title: t("notify.error.title"), body: base });
       // If the server reported the raw Yorizon status, append it so the
       // user sees exactly what the automation wrote. Useful for debugging
       // unexpected-state and creation-failed errors where the root cause
