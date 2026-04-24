@@ -1,0 +1,44 @@
+# Caddy site block for the hsselfservice app.
+#
+# Drop this into /etc/caddy/Caddyfile (or an imported fragment) on
+# yorizoncasey. The hostname below MUST match HUBSPOT_REDIRECT_URI in
+# /srv/hsselfservice/.env — the HubSpot OAuth app verifies the redirect
+# URL exactly.
+#
+# After editing:  sudo caddy validate --config /etc/caddy/Caddyfile
+#                 sudo systemctl reload caddy
+
+hsselfservice.cdit-dev.de {
+    encode zstd gzip
+
+    # Security headers. Caddy sets a reasonable default TLS config via ACME.
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "no-referrer"
+        -Server
+    }
+
+    # Health check bypasses access logs to keep journald clean.
+    @health path /api/health
+    handle @health {
+        reverse_proxy 127.0.0.1:8081
+    }
+
+    # Everything else (app + /api/auth/* + /api/jobs/*) proxies to Next.js.
+    handle {
+        reverse_proxy 127.0.0.1:8081 {
+            header_up X-Forwarded-Proto {scheme}
+            header_up X-Forwarded-Host  {host}
+            header_up X-Real-IP         {remote_host}
+        }
+    }
+
+    log {
+        output file /var/log/caddy/hsselfservice.log {
+            roll_size 10MiB
+            roll_keep 5
+        }
+        format json
+    }
+}

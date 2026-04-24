@@ -1,0 +1,39 @@
+# hsselfservice — Next.js app for creating HubSpot test entities.
+#
+# Target deploy: /srv/hsselfservice/docker-compose.yml on yorizoncasey.
+# Caddy (host-level) terminates TLS at https://hsselfservice.cdit-dev.de and
+# proxies to 127.0.0.1:8081 → this container. See Caddyfile.snippet.
+#
+# Env:  .env        (0600, hsselfservice:hsselfservice) — see .env.example.
+# Data: ./data/     (bind mount, SQLite jobs + idempotency).
+#
+# Deploy:  sudo scripts/deploy.sh
+# Shell:   docker compose exec hsselfservice sh
+
+services:
+  hsselfservice:
+    image: ghcr.io/yorizon-product/y_hsselfservice:${IMAGE_TAG:-main}
+    container_name: hsselfservice
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Override the .env default so state lives on the bind-mount inside
+      # the container regardless of what .env says.
+      DATA_DIR: /data
+      # Turn on the in-process job worker. Omit / set to 0 for read-only
+      # debugging deployments.
+      RUN_WORKER: "1"
+    volumes:
+      - ./data:/data
+    ports:
+      - "127.0.0.1:8081:8081"
+    stop_grace_period: 30s
+    mem_limit: 512m
+    # Healthcheck is declared in the image (Dockerfile HEALTHCHECK).
+    # `docker compose up -d --wait` gates on it.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
