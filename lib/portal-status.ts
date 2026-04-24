@@ -9,8 +9,22 @@
  * re-running GET /crm/v3/properties/companies and sampling messages.
  */
 
-export const SUCCESS_MESSAGES = ["Company created successfully"] as const;
-export const TERMINAL_FAILURE_MESSAGES = ["Company creation failed"] as const;
+// "Company updated successfully" is also accepted: in the live Yorizon
+// portal (observed 2026-04-24) the status field gets overwritten with
+// the "updated" message as soon as any side-effect hits the company
+// after creation (e.g. attaching our initial note). Since the field is
+// a single-value textarea, not a log, the "created" message can be
+// gone by the time our first 60s poll reads it — even though Yorizon
+// did provision the company successfully. Accepting both variants
+// closes that race.
+export const SUCCESS_MESSAGES = [
+  "Company created successfully",
+  "Company updated successfully",
+] as const;
+export const TERMINAL_FAILURE_MESSAGES = [
+  "Company creation failed",
+  "Company update failed",
+] as const;
 
 const CLOCK_SKEW_MS = 2_000;
 const HUBSPOT_API = "https://api.hubapi.com";

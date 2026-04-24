@@ -63,13 +63,27 @@ test("classifyStatus returns success for allowlisted success message within skew
   assert.equal(classifyStatus(parsed, companyCreatedAt), "success");
 });
 
+test("classifyStatus returns success for 'Company updated successfully' (post-create overwrite race)", () => {
+  // Observed in prod 2026-04-24: Yorizon overwrites the status field
+  // with "updated successfully" when any side-effect hits the company
+  // after creation (e.g. our initial note attach). The "created"
+  // message may be gone by the time we poll — still a success.
+  const parsed = parseStatus("22/04/2026 10:00:05.000: Company updated successfully")!;
+  assert.equal(classifyStatus(parsed, companyCreatedAt), "success");
+});
+
 test("classifyStatus returns failed for allowlisted failure message", () => {
   const parsed = parseStatus("22/04/2026 10:00:05.000: Company creation failed")!;
   assert.equal(classifyStatus(parsed, companyCreatedAt), "failed");
 });
 
+test("classifyStatus returns failed for 'Company update failed'", () => {
+  const parsed = parseStatus("22/04/2026 10:00:05.000: Company update failed")!;
+  assert.equal(classifyStatus(parsed, companyCreatedAt), "failed");
+});
+
 test("classifyStatus returns unexpected for unknown message", () => {
-  const parsed = parseStatus("22/04/2026 10:00:05.000: Company updated successfully")!;
+  const parsed = parseStatus("22/04/2026 10:00:05.000: Something nobody recognises")!;
   assert.equal(classifyStatus(parsed, companyCreatedAt), "unexpected");
 });
 
@@ -189,8 +203,8 @@ test("pollCompanyReadiness throws PORTAL_UNEXPECTED_STATE when budget exhausts w
         sleep: async () => {},
         fetchImpl: makeFetch([
           null,
-          "22/04/2026 10:00:15.000: Company updated successfully",
-          "22/04/2026 10:00:35.000: Company updated successfully",
+          "22/04/2026 10:00:15.000: Something nobody recognises",
+          "22/04/2026 10:00:35.000: Still nobody recognises this",
         ]) as any,
       }
     ),
