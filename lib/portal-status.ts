@@ -157,13 +157,24 @@ export async function pollCompanyReadiness(
     log(`[audit] poll ${i + 1}/${delays.length} company=${companyId} elapsed=${elapsedMs}ms status=${displayStatus} ${touched} class=${cls}`);
 
     if (cls === "success") return;
-    // "failed", "unexpected", "pending": all keep polling. Yorizon's
-    // automation has been observed to first write "Company creation
-    // failed" and then retry internally, writing "Company created
-    // successfully" ~80s later. Short-circuiting on the first failure
-    // was causing our tool to give up before their retry completed.
-    // The final classification below decides which error code to surface
-    // if the full budget expires without a success.
+    // Short-circuit on the first "failed" status. Yorizon's downstream
+    // service rejects attempts to create the same company+domain
+    // combination twice — and any additional wait on our side risks
+    // catching Yorizon's own internal retry, which itself counts as a
+    // second create attempt and hits that downstream limit. Better to
+    // surface the failure immediately than induce a cascading conflict.
+    if (cls === "failed") {
+      log(`[audit] poll-result company=${companyId} decision=PORTAL_CREATION_FAILED elapsed=${Date.now() - t0}ms ${touched} raw="${raw}"`);
+      throw new PortalStatusError(
+        "PORTAL_CREATION_FAILED",
+        "Yorizon reported that company provisioning failed.",
+        raw
+      );
+    }
+    // "pending" or "unexpected": keep polling within the budget. "Pending"
+    // means the automation hasn't written anything yet; "unexpected" means
+    // it wrote something outside our allowlist and we give it more time
+    // in case a subsequent write clarifies the state.
   }
 
   // Budget exhausted. Surface the most specific error code based on the
