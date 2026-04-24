@@ -176,19 +176,36 @@ export async function POST(req: NextRequest) {
       console.error(`[create/side] ${side} step failed, rolling back ${createdIds.length} entities:`, stepError.message);
     }
 
-    const rolledBackLabels = createdIds.map(e => e.label).reverse();
+    // Actually check whether rollback succeeded — previously we awaited
+    // rollbackEntities and then claimed "nothing was saved" regardless
+    // of whether DELETE actually worked, leaving orphan records in
+    // HubSpot without telling the user.
+    let rollbackDeleted: typeof createdIds = [];
+    let rollbackFailed: typeof createdIds = [];
     if (!skipRollback && createdIds.length > 0) {
-      await rollbackEntities(headers, createdIds, fetch, (line) => console.log(line));
+      const result = await rollbackEntities(headers, createdIds, fetch, (line) => console.log(line));
+      rollbackDeleted = result.deleted as typeof createdIds;
+      rollbackFailed = result.failed.map(f => f.entity) as typeof createdIds;
+      if (rollbackFailed.length > 0) {
+        console.error(`[create/side] ${side} rollback incomplete: ${rollbackFailed.length} entities still in HubSpot:`, rollbackFailed.map(e => `${e.type}/${e.id}`).join(", "));
+      }
     }
 
+    const partialRollback = !skipRollback && rollbackFailed.length > 0;
     const rolledBackSummary = skipRollback
       ? ` Records were kept in HubSpot for inspection (PORTAL_STATUS_POLL_KEEP_ON_FAIL=1). You'll need to delete them manually after debugging.`
-      : rolledBackLabels.length > 0
-      ? ` ${rolledBackLabels.map(l => l.replace(/_/g, " ")).join(", ")} ${rolledBackLabels.length === 1 ? "was" : "were"} created but then removed — nothing was saved. You can retry safely.`
+      : partialRollback
+      ? ` Rollback was incomplete — ${rollbackFailed.length} of ${createdIds.length} records could not be deleted and remain in HubSpot. They're listed below; you'll need to remove them manually.`
+      : rollbackDeleted.length > 0
+      ? ` ${rollbackDeleted.map(e => e.label.replace(/_/g, " ")).join(", ")} ${rollbackDeleted.length === 1 ? "was" : "were"} created but then removed — nothing was saved. You can retry safely.`
       : "";
 
-    const keptRecords = skipRollback
-      ? createdIds.map(e => ({
+    // `kept` tells the client which records still exist in HubSpot so
+    // the UI can render direct links. Populated either by the debug
+    // flag (skipRollback) or by a failed rollback (partialRollback).
+    const keptSource = skipRollback ? createdIds : rollbackFailed;
+    const keptRecords = keptSource.length > 0
+      ? keptSource.map(e => ({
           type: e.label,
           id: e.id,
           url: hubspotRecordUrl(portalId, e.type === "companies" ? "company" : "contact", e.id),
@@ -200,7 +217,7 @@ export async function POST(req: NextRequest) {
         error: `${stepError.message}${rolledBackSummary}`,
         code: portalCode,
         rawStatus: stepError instanceof PortalStatusError ? stepError.rawStatus : undefined,
-        rolledBack: skipRollback ? [] : rolledBackLabels,
+        rolledBack: skipRollback ? [] : rollbackDeleted.map(e => e.label).reverse(),
         kept: keptRecords,
       },
       { status: 500 }

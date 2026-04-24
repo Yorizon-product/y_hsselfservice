@@ -389,21 +389,34 @@ export default function Home() {
 
     // Only fires when we have something to clean up — the server's
     // per-side route already rolled back its own in-flight failures.
-    const clientRollback = async () => {
-      if (allTrackedIds.length === 0) return [] as string[];
+    // Returns both successfully-deleted labels AND any that couldn't be
+    // cleaned up, so we can surface orphan records honestly rather than
+    // claiming everything was removed.
+    type RollbackOutcome = {
+      deletedLabels: string[];
+      failed: Array<{ type: string; id: string; label?: string }>;
+    };
+    const clientRollback = async (): Promise<RollbackOutcome> => {
+      if (allTrackedIds.length === 0) return { deletedLabels: [], failed: [] };
+      const makeFailedAll = () => ({
+        deletedLabels: [] as string[],
+        failed: allTrackedIds.map(t => ({ type: t.type, id: t.id, label: t.label })),
+      });
       try {
         const res = await fetch("/api/create/rollback", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ ids: allTrackedIds }),
         });
-        if (!res.ok) return allTrackedIds.map(t => t.label || `${t.type}_${t.id}`);
+        if (!res.ok) return makeFailedAll();
         const data = await res.json();
-        return (data.deleted as Array<{ label?: string; type: string; id: string }>).map(
+        const deletedLabels = (data.deleted as Array<{ label?: string; type: string; id: string }>).map(
           d => d.label || `${d.type}_${d.id}`
         );
+        const failed = (data.failed as Array<{ label?: string; type: string; id: string }>) ?? [];
+        return { deletedLabels, failed };
       } catch {
-        return allTrackedIds.map(t => t.label || `${t.type}_${t.id}`);
+        return makeFailedAll();
       }
     };
 
@@ -450,11 +463,22 @@ export default function Home() {
         ? `${withRaw}\n\nKept in HubSpot for inspection:\n${e.kept.map((k: any) => `· ${k.type.replace(/_/g, " ")} → ${k.url}`).join("\n")}`
         : withRaw;
       // If earlier phases already succeeded, tell the rollback endpoint
-      // to clean them up before we surface the error.
-      const rolledBackLabels = await clientRollback();
-      const withRollback = rolledBackLabels.length > 0
-        ? `${withKept}\n\nPreviously-created records were removed: ${rolledBackLabels.map(l => l.replace(/_/g, " ")).join(", ")}`
-        : withKept;
+      // to clean them up before we surface the error. Surfaces both the
+      // deleted and the failed-to-delete items so the user isn't misled
+      // about what's still in HubSpot.
+      const outcome = await clientRollback();
+      const portalId_ = portalId;
+      const recordUrl = (type: string, id: string) =>
+        portalId_
+          ? `https://app.hubspot.com/contacts/${portalId_}/${type === "company" ? "company" : type === "contact" ? "contact" : "record"}/${id}`
+          : `#${type}-${id}`;
+      let withRollback = withKept;
+      if (outcome.deletedLabels.length > 0) {
+        withRollback += `\n\nPreviously-created records were removed: ${outcome.deletedLabels.map(l => l.replace(/_/g, " ")).join(", ")}`;
+      }
+      if (outcome.failed.length > 0) {
+        withRollback += `\n\nCould not remove ${outcome.failed.length} record${outcome.failed.length === 1 ? "" : "s"} — they remain in HubSpot and need manual cleanup:\n${outcome.failed.map(f => `· ${(f.label || `${f.type}_${f.id}`).replace(/_/g, " ")} → ${recordUrl(f.type, f.id)}`).join("\n")}`;
+      }
       setError(withRollback);
       startCooldown();
     } finally {
