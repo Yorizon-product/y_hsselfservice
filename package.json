@@ -4,7 +4,7 @@
   "private": true,
   "packageManager": "npm@11.12.1",
   "scripts": {
-    "prepare": "cp scripts/bump-version.sh .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit",
+    "prepare": "if [ -d .git/hooks ]; then cp scripts/bump-version.sh .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit; fi",
     "dev": "next dev",
     "prebuild": "node scripts/sync-theme.mjs",
     "build": "next build",
@@ -48,6 +48,7 @@
     "tmp": "^0.2.5",
     "basic-ftp": "^5.3.0",
     "picomatch@<2.3.2": "^2.3.2",
-    "picomatch@>=4.0.0 <4.0.4": "^4.0.4"
+    "picomatch@>=4.0.0 <4.0.4": "^4.0.4",
+    "postcss": "^8.5.10"
   }
 }
