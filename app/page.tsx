@@ -12,6 +12,7 @@ const APP_VERSION = packageJson.version;
 type ContactFields = { firstname: string; lastname: string; email: string };
 type CompanyFields = { name: string; domain: string; contact: ContactFields };
 type CreatedEntity = { type: string; id: string; name: string; url: string };
+type RollbackId = { type: "company" | "contact" | "note"; id: string; label?: string };
 
 const emptyContact = (): ContactFields => ({ firstname: "", lastname: "", email: "" });
 const emptyCompany = (): CompanyFields => ({ name: "", domain: "", contact: emptyContact() });
@@ -46,13 +47,15 @@ function stageSequence(doPartner: boolean, doCustomer: boolean): ProgressStage[]
   return steps;
 }
 
-// Stage boundaries match the sequential per-side flow in app/api/create/route.ts
-// and the default delays in lib/portal-status.ts ([30s, 30s, 60s] per side).
+// Stage boundaries match the per-side flow in app/api/create/side/route.ts
+// and the default delays in lib/portal-status.ts ([60s, 60s, 120s] per
+// side — each side runs in its own 300s Vercel invocation with 240s of
+// poll budget).
 const CREATE_COMPANY_MS = 1_000;
 const CREATE_CONTACT_MS = 1_000;
-const POLL_WINDOW_1_MS = 30_000;
-const POLL_WINDOW_2_MS = 30_000;
-const POLL_WINDOW_3_MS = 60_000;
+const POLL_WINDOW_1_MS = 60_000;
+const POLL_WINDOW_2_MS = 60_000;
+const POLL_WINDOW_3_MS = 120_000;
 const SIDE_TOTAL_MS = CREATE_COMPANY_MS + POLL_WINDOW_1_MS + POLL_WINDOW_2_MS + POLL_WINDOW_3_MS + CREATE_CONTACT_MS;
 
 // Partial progress (without step/totalSteps) — the outer computeProgress
@@ -319,17 +322,23 @@ export default function Home() {
       const elapsed = performance.now() - progressStartRef.current;
       setProgress(computeProgress(elapsed, doPartner, doCustomer));
     }, 250);
-    try {
-      const idempotencyKey = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      const payload: Record<string, any> = { partner: activePartner, customer: activeCustomer, portalId };
-      if (isAdvanced) {
-        if (activePartner) payload.partnerRole = partnerRole;
-        if (activeCustomer) payload.customerRole = customerRole;
-      } else { payload.portalRole = portalRole; }
-      const res = await fetch("/api/create", {
+
+    // Accumulators across the (up to) three phase calls. If a later
+    // phase fails, we POST these to /api/create/rollback so the user
+    // never sees orphan records from earlier-succeeded phases.
+    const allCreated: CreatedEntity[] = [];
+    const allTrackedIds: RollbackId[] = [];
+    const idemKey = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const rolePayload = (side: "partner" | "customer") => {
+      if (isAdvanced) return { portalRole: side === "partner" ? partnerRole : customerRole };
+      return { portalRole };
+    };
+
+    const callSide = async (side: "partner" | "customer", payload: CompanyFields) => {
+      const res = await fetch("/api/create/side", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-idempotency-key": idempotencyKey },
-        body: JSON.stringify(payload),
+        headers: { "Content-Type": "application/json", "x-idempotency-key": idemKey() },
+        body: JSON.stringify({ side, payload, portalId, ...rolePayload(side) }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -339,7 +348,65 @@ export default function Home() {
         (err as any).kept = data.kept;
         throw err;
       }
-      setResults(data.created);
+      allCreated.push(...(data.created as CreatedEntity[]));
+      if (Array.isArray(data.trackedIds)) {
+        allTrackedIds.push(...(data.trackedIds as RollbackId[]));
+      }
+    };
+
+    const callAssociate = async (partnerCompanyId: string, customerCompanyId: string) => {
+      const res = await fetch("/api/create/associate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-idempotency-key": idemKey() },
+        body: JSON.stringify({
+          partnerCompanyId,
+          customerCompanyId,
+          partnerName: activePartner?.name,
+          customerName: activeCustomer?.name,
+          portalId,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        const err = new Error(data.error || t("error.generic"));
+        (err as any).code = data.code;
+        throw err;
+      }
+      allCreated.push(...(data.created as CreatedEntity[]));
+    };
+
+    // Only fires when we have something to clean up — the server's
+    // per-side route already rolled back its own in-flight failures.
+    const clientRollback = async () => {
+      if (allTrackedIds.length === 0) return [] as string[];
+      try {
+        const res = await fetch("/api/create/rollback", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids: allTrackedIds }),
+        });
+        if (!res.ok) return allTrackedIds.map(t => t.label || `${t.type}_${t.id}`);
+        const data = await res.json();
+        return (data.deleted as Array<{ label?: string; type: string; id: string }>).map(
+          d => d.label || `${d.type}_${d.id}`
+        );
+      } catch {
+        return allTrackedIds.map(t => t.label || `${t.type}_${t.id}`);
+      }
+    };
+
+    try {
+      if (doPartner) await callSide("partner", activePartner!);
+      if (doCustomer) await callSide("customer", activeCustomer!);
+      if (doPartner && doCustomer) {
+        const partnerCompanyId = allTrackedIds.find(t => t.label === "partner_company")?.id;
+        const customerCompanyId = allTrackedIds.find(t => t.label === "customer_company")?.id;
+        if (!partnerCompanyId || !customerCompanyId) {
+          throw new Error("Internal: missing company IDs for association");
+        }
+        await callAssociate(partnerCompanyId, customerCompanyId);
+      }
+      setResults(allCreated);
       setPartner(emptyCompany()); setCustomer(emptyCompany());
       // Only fires when the tab is hidden — see lib/notifications.ts.
       const bodyKey: TranslationKey =
@@ -354,19 +421,22 @@ export default function Home() {
       // no kept-URL debug block. Those stay inline-only.
       notify({ title: t("notify.error.title"), body: base });
       // If the server reported the raw Yorizon status, append it so the
-      // user sees exactly what the automation wrote. Useful for debugging
-      // unexpected-state and creation-failed errors where the root cause
-      // is in Yorizon's side (e.g. invalid domain, duplicate record).
+      // user sees exactly what the automation wrote.
       const withRaw = e.rawStatus
         ? `${base}\n\nHubSpot reported: ${e.rawStatus}`
         : base;
       // When debug mode (PORTAL_STATUS_POLL_KEEP_ON_FAIL=1) kept the
-      // failed records in HubSpot, show their direct URLs so the user
-      // can click through and inspect notes, timeline, and other fields.
+      // failed records in HubSpot, show their direct URLs.
       const withKept = e.kept && e.kept.length > 0
         ? `${withRaw}\n\nKept in HubSpot for inspection:\n${e.kept.map((k: any) => `· ${k.type.replace(/_/g, " ")} → ${k.url}`).join("\n")}`
         : withRaw;
-      setError(withKept);
+      // If earlier phases already succeeded, tell the rollback endpoint
+      // to clean them up before we surface the error.
+      const rolledBackLabels = await clientRollback();
+      const withRollback = rolledBackLabels.length > 0
+        ? `${withKept}\n\nPreviously-created records were removed: ${rolledBackLabels.map(l => l.replace(/_/g, " ")).join(", ")}`
+        : withKept;
+      setError(withRollback);
       startCooldown();
     } finally {
       setLoading(false);

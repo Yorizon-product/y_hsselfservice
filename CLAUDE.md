@@ -42,17 +42,19 @@ The test suite uses Node's built-in test runner with native TypeScript type-stri
 
 All server routes that call HubSpot go through `lib/hubspot-token.ts::getHubSpotToken()`. It reads the session, and if `expiresAt` is within 5 minutes it refreshes via HubSpot's OAuth token endpoint and persists the new tokens. Failure destroys the session and throws `AuthError`, which API routes translate to a 401. Never call HubSpot with a raw `session.accessToken` — always go through this helper.
 
-### Entity creation flow (`app/api/create/route.ts`)
+### Entity creation flow (three phased routes)
 
-Single POST route orchestrates a sequenced, rolled-back HubSpot CRM transaction:
+The flow is split across three routes so each side has its own 300s Vercel invocation — a single route at the 300s cap had no headroom for Yorizon slowness. Shared HubSpot primitives live in `lib/hubspot-entities.ts` and are reused by all three routes.
 
-1. Validate payload — at least one of `partner`/`customer` required; reject mixed `portalRole` + per-entity role payloads; validate `portalRole` against the allowlist `{Admin-RW, User-RW, User-RO}` (default `User-RO`).
-2. Idempotency — if header `x-idempotency-key` was seen in the last 30s (in-memory `Set`), return 409. Good enough for a single-instance Vercel deployment; don't replace with anything fancier unless this becomes multi-instance.
-3. For each requested side: create company → attach note → create contact (associated to company via `associationTypeId: 1`) → attach note. Push every created ID into `createdIds`.
-4. If both partner and customer are present, associate the two companies (`associationTypeId: 13`).
-5. On **any** step failure, `rollbackEntities` deletes every `createdIds` entry in reverse order and the error message includes a human-readable summary of what was rolled back. The whole flow is sequential specifically so rollback is deterministic — do not parallelize.
+1. **`POST /api/create/side`** (`maxDuration = 300`) — one side at a time. Body: `{ side: "partner" | "customer", payload: { name, domain, contact }, portalRole, portalId }`. Runs company → note → poll readiness (up to 240s via `[60, 60, 120]` delays in `lib/portal-status.ts`) → domain patch → contact → note. If any step fails *within* this call, the route rolls back everything *it* created in reverse order (same semantics as before) and returns the friendly error. Returns `{ created: CreatedEntity[], trackedIds: RollbackId[] }` — the client keeps `trackedIds` so it can call rollback if a later phase fails.
+2. **`POST /api/create/associate`** (`maxDuration = 60`) — body: `{ partnerCompanyId, customerCompanyId, partnerName, customerName, portalId }`. Creates the parent-company association via `associationTypeId: 13`. Does **not** attempt to delete either company on failure — cleanup is the client's job.
+3. **`POST /api/create/rollback`** (`maxDuration = 60`) — body: `{ ids: Array<{ type: "company" | "contact" | "note", id, label? }> }`. Whitelist enforced (no arbitrary-type deletions); max 8 IDs per call; 404s are treated as already-gone and counted as success.
 
-`createNote` uses association type IDs `190` (company↔note) and `202` (contact↔note), hard-coded from HubSpot's HUBSPOT_DEFINED catalogue.
+The **client** (`app/page.tsx handleSubmit`) orchestrates: partner side → customer side → associate, accumulating `trackedIds` across successful calls. If any *later* phase fails while *earlier* phases succeeded, the client POSTs the accumulated IDs to `/api/create/rollback` before surfacing the friendly error. The user-visible contract matches the old single-route flow: either everything lands in HubSpot or nothing does.
+
+Idempotency is per-call — each route keeps its own 30s in-memory `Set` keyed on `x-idempotency-key`.
+
+`createNote` uses association type IDs `190` (company↔note) and `202` (contact↔note), hard-coded from HubSpot's HUBSPOT_DEFINED catalogue. Contacts associate to their company via `associationTypeId: 1`.
 
 ### Client (`app/page.tsx`)
 
