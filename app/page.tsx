@@ -12,7 +12,6 @@ const APP_VERSION = packageJson.version;
 type ContactFields = { firstname: string; lastname: string; email: string };
 type CompanyFields = { name: string; domain: string; contact: ContactFields };
 type CreatedEntity = { type: string; id: string; name: string; url: string };
-type RollbackId = { type: "company" | "contact" | "note"; id: string; label?: string };
 
 const emptyContact = (): ContactFields => ({ firstname: "", lastname: "", email: "" });
 const emptyCompany = (): CompanyFields => ({ name: "", domain: "", contact: emptyContact() });
@@ -315,130 +314,95 @@ export default function Home() {
     const activeCustomer = isAdvanced && !customerEnabled ? null : customer;
     const doPartner = !!activePartner;
     const doCustomer = !!activeCustomer;
-    // Progress clock is phase-local: reset on each phase transition so
-    // the UI snaps forward when a side completes earlier than the
-    // worst-case budget would predict.
+    // Phase-local progress clock. The server is authoritative: each
+    // /api/jobs/:id poll reports the current `phase` and when it last
+    // transitioned — we reset our local clock on phase change so the
+    // UI snaps forward as soon as the server moves on.
     progressStartRef.current = performance.now();
     progressPhaseRef.current = doPartner ? "partner" : "customer";
     setProgress(computeProgress(0, progressPhaseRef.current, doPartner, doCustomer));
     if (progressTickRef.current) clearInterval(progressTickRef.current);
-    // 250ms tick keeps the per-second countdown readable without
-    // over-rendering. The progress ring is CSS-animated, not JS-driven.
     progressTickRef.current = setInterval(() => {
       const elapsed = performance.now() - progressStartRef.current;
       setProgress(computeProgress(elapsed, progressPhaseRef.current, doPartner, doCustomer));
     }, 250);
 
-    const advancePhase = (next: Phase) => {
-      progressPhaseRef.current = next;
-      progressStartRef.current = performance.now();
-      setProgress(computeProgress(0, next, doPartner, doCustomer));
+    const applyServerPhase = (nextPhase: Phase | null, phaseStartedAtIso: string | null) => {
+      if (!nextPhase) return;
+      if (nextPhase === progressPhaseRef.current) return;
+      progressPhaseRef.current = nextPhase;
+      // Align local clock to server's phase-start wall time. Browser
+      // and server clocks are close enough for our sub-second needs.
+      const serverMs = phaseStartedAtIso ? new Date(phaseStartedAtIso).getTime() : Date.now();
+      const elapsedInPhaseAtServer = Math.max(0, Date.now() - serverMs);
+      progressStartRef.current = performance.now() - elapsedInPhaseAtServer;
+      setProgress(computeProgress(elapsedInPhaseAtServer, nextPhase, doPartner, doCustomer));
     };
 
-    // Accumulators across the (up to) three phase calls. If a later
-    // phase fails, we POST these to /api/create/rollback so the user
-    // never sees orphan records from earlier-succeeded phases.
-    const allCreated: CreatedEntity[] = [];
-    const allTrackedIds: RollbackId[] = [];
-    const idemKey = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const rolePayload = (side: "partner" | "customer") => {
-      if (isAdvanced) return { portalRole: side === "partner" ? partnerRole : customerRole };
+    const rolePayload = () => {
+      if (isAdvanced) {
+        const p: Record<string, string> = {};
+        if (activePartner) p.partnerRole = partnerRole;
+        if (activeCustomer) p.customerRole = customerRole;
+        return p;
+      }
       return { portalRole };
     };
 
-    const callSide = async (side: "partner" | "customer", payload: CompanyFields) => {
-      const res = await fetch("/api/create/side", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-idempotency-key": idemKey() },
-        body: JSON.stringify({ side, payload, portalId, ...rolePayload(side) }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        const err = new Error(data.error || t("error.generic"));
-        (err as any).code = data.code;
-        (err as any).rawStatus = data.rawStatus;
-        (err as any).kept = data.kept;
-        throw err;
-      }
-      allCreated.push(...(data.created as CreatedEntity[]));
-      if (Array.isArray(data.trackedIds)) {
-        allTrackedIds.push(...(data.trackedIds as RollbackId[]));
-      }
-    };
-
-    const callAssociate = async (partnerCompanyId: string, customerCompanyId: string) => {
-      const res = await fetch("/api/create/associate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-idempotency-key": idemKey() },
-        body: JSON.stringify({
-          partnerCompanyId,
-          customerCompanyId,
-          partnerName: activePartner?.name,
-          customerName: activeCustomer?.name,
-          portalId,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        const err = new Error(data.error || t("error.generic"));
-        (err as any).code = data.code;
-        throw err;
-      }
-      allCreated.push(...(data.created as CreatedEntity[]));
-    };
-
-    // Only fires when we have something to clean up — the server's
-    // per-side route already rolled back its own in-flight failures.
-    // Returns both successfully-deleted labels AND any that couldn't be
-    // cleaned up, so we can surface orphan records honestly rather than
-    // claiming everything was removed.
-    type RollbackOutcome = {
-      deletedLabels: string[];
-      failed: Array<{ type: string; id: string; label?: string }>;
-    };
-    const clientRollback = async (): Promise<RollbackOutcome> => {
-      if (allTrackedIds.length === 0) return { deletedLabels: [], failed: [] };
-      const makeFailedAll = () => ({
-        deletedLabels: [] as string[],
-        failed: allTrackedIds.map(t => ({ type: t.type, id: t.id, label: t.label })),
-      });
-      try {
-        const res = await fetch("/api/create/rollback", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ids: allTrackedIds }),
-        });
-        if (!res.ok) return makeFailedAll();
-        const data = await res.json();
-        const deletedLabels = (data.deleted as Array<{ label?: string; type: string; id: string }>).map(
-          d => d.label || `${d.type}_${d.id}`
-        );
-        const failed = (data.failed as Array<{ label?: string; type: string; id: string }>) ?? [];
-        return { deletedLabels, failed };
-      } catch {
-        return makeFailedAll();
-      }
-    };
+    const idempotencyKey = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const pollIntervalMs = 2000;
 
     try {
-      if (doPartner) {
-        await callSide("partner", activePartner!);
-        // Partner finished; advance the client clock so the UI doesn't
-        // linger on "waiting for partner" while the customer call is
-        // already in flight.
-        if (doCustomer) advancePhase("customer");
+      const enqueue = await fetch("/api/jobs/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-idempotency-key": idempotencyKey },
+        body: JSON.stringify({
+          partner: activePartner,
+          customer: activeCustomer,
+          portalId,
+          ...rolePayload(),
+        }),
+      });
+      const enqueueData = await enqueue.json();
+      if (!enqueue.ok) {
+        throw new Error(enqueueData.error || t("error.generic"));
       }
-      if (doCustomer) await callSide("customer", activeCustomer!);
-      if (doPartner && doCustomer) {
-        advancePhase("associate");
-        const partnerCompanyId = allTrackedIds.find(t => t.label === "partner_company")?.id;
-        const customerCompanyId = allTrackedIds.find(t => t.label === "customer_company")?.id;
-        if (!partnerCompanyId || !customerCompanyId) {
-          throw new Error("Internal: missing company IDs for association");
-        }
-        await callAssociate(partnerCompanyId, customerCompanyId);
+      const jobId = enqueueData.jobId as string;
+
+      // Poll until terminal. The `new Promise` shape lets us reject from
+      // inside the inner setTimeout chain without wrapping the whole
+      // handler in nested try/catch.
+      const terminalJob = await new Promise<any>((resolve, reject) => {
+        const pollOnce = async () => {
+          try {
+            const res = await fetch(`/api/jobs/${jobId}`);
+            const data = await res.json();
+            if (!res.ok) {
+              reject(new Error(data.error || t("error.generic")));
+              return;
+            }
+            applyServerPhase(data.phase as Phase | null, data.phase_started_at);
+            if (data.status === "succeeded" || data.status === "failed") {
+              resolve(data);
+              return;
+            }
+            setTimeout(pollOnce, pollIntervalMs);
+          } catch (e) {
+            reject(e);
+          }
+        };
+        pollOnce();
+      });
+
+      if (terminalJob.status === "failed") {
+        const err = new Error(terminalJob.error || t("error.generic"));
+        (err as any).code = terminalJob.code;
+        (err as any).rawStatus = terminalJob.raw_status;
+        (err as any).kept = terminalJob.kept;
+        throw err;
       }
-      setResults(allCreated);
+
+      setResults(terminalJob.created as CreatedEntity[]);
       setPartner(emptyCompany()); setCustomer(emptyCompany());
       // Only fires when the tab is hidden — see lib/notifications.ts.
       const bodyKey: TranslationKey =
@@ -449,37 +413,14 @@ export default function Home() {
     } catch (e: any) {
       const code = PORTAL_ERROR_CODES.includes(e.code) ? (e.code as PortalErrorCode) : undefined;
       const base = friendlyError(e.message, code);
-      // Notification body uses the clean friendly message — no rawStatus,
-      // no kept-URL debug block. Those stay inline-only.
       notify({ title: t("notify.error.title"), body: base });
-      // If the server reported the raw Yorizon status, append it so the
-      // user sees exactly what the automation wrote.
       const withRaw = e.rawStatus
         ? `${base}\n\nHubSpot reported: ${e.rawStatus}`
         : base;
-      // When debug mode (PORTAL_STATUS_POLL_KEEP_ON_FAIL=1) kept the
-      // failed records in HubSpot, show their direct URLs.
-      const withKept = e.kept && e.kept.length > 0
-        ? `${withRaw}\n\nKept in HubSpot for inspection:\n${e.kept.map((k: any) => `· ${k.type.replace(/_/g, " ")} → ${k.url}`).join("\n")}`
+      const withKept = Array.isArray(e.kept) && e.kept.length > 0
+        ? `${withRaw}\n\nKept in HubSpot for inspection:\n${e.kept.map((k: any) => `· ${String(k.type).replace(/_/g, " ")} → ${k.url}`).join("\n")}`
         : withRaw;
-      // If earlier phases already succeeded, tell the rollback endpoint
-      // to clean them up before we surface the error. Surfaces both the
-      // deleted and the failed-to-delete items so the user isn't misled
-      // about what's still in HubSpot.
-      const outcome = await clientRollback();
-      const portalId_ = portalId;
-      const recordUrl = (type: string, id: string) =>
-        portalId_
-          ? `https://app.hubspot.com/contacts/${portalId_}/${type === "company" ? "company" : type === "contact" ? "contact" : "record"}/${id}`
-          : `#${type}-${id}`;
-      let withRollback = withKept;
-      if (outcome.deletedLabels.length > 0) {
-        withRollback += `\n\nPreviously-created records were removed: ${outcome.deletedLabels.map(l => l.replace(/_/g, " ")).join(", ")}`;
-      }
-      if (outcome.failed.length > 0) {
-        withRollback += `\n\nCould not remove ${outcome.failed.length} record${outcome.failed.length === 1 ? "" : "s"} — they remain in HubSpot and need manual cleanup:\n${outcome.failed.map(f => `· ${(f.label || `${f.type}_${f.id}`).replace(/_/g, " ")} → ${recordUrl(f.type, f.id)}`).join("\n")}`;
-      }
-      setError(withRollback);
+      setError(withKept);
       startCooldown();
     } finally {
       setLoading(false);

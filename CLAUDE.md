@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A Next.js 14 (App Router) self-service tool that creates test partner/customer entities in HubSpot. It authenticates via HubSpot OAuth, stores tokens in an encrypted iron-session cookie, and proxies CRM calls so the user's token never leaves the server. Designed to deploy to Vercel with zero infrastructure beyond env vars.
+A Next.js 16 (App Router) self-service tool that creates test partner/customer entities in HubSpot. It authenticates via HubSpot OAuth, stores tokens in an encrypted iron-session cookie, and proxies CRM calls so the user's token never leaves the server.
+
+**Deployment: self-hosted on `yorizoncasey` as a Docker container behind Caddy at `https://hsselfservice.cdit-dev.de`**, mirroring the y_prmcrm/flows pattern. State lives in a bind-mounted SQLite DB at `/data/hsselfservice.db`. The app used to run on Vercel; the migration is documented in the Phase-1/2/3 commits starting at `918d457`.
 
 ## Commands
 
@@ -42,19 +44,25 @@ The test suite uses Node's built-in test runner with native TypeScript type-stri
 
 All server routes that call HubSpot go through `lib/hubspot-token.ts::getHubSpotToken()`. It reads the session, and if `expiresAt` is within 5 minutes it refreshes via HubSpot's OAuth token endpoint and persists the new tokens. Failure destroys the session and throws `AuthError`, which API routes translate to a 401. Never call HubSpot with a raw `session.accessToken` — always go through this helper.
 
-### Entity creation flow (three phased routes)
+### Entity creation flow (job-based, in-process worker)
 
-The flow is split across three routes so each side has its own 300s Vercel invocation — a single route at the 300s cap had no headroom for Yorizon slowness. Shared HubSpot primitives live in `lib/hubspot-entities.ts` and are reused by all three routes.
+Self-hosting means no 300s function cap — the full flow runs inside a single long-lived Node.js process as an in-process worker.
 
-1. **`POST /api/create/side`** (`maxDuration = 300`) — one side at a time. Body: `{ side: "partner" | "customer", payload: { name, domain, contact }, portalRole, portalId }`. Runs company → note → poll readiness (up to 240s via `[60, 60, 120]` delays in `lib/portal-status.ts`) → domain patch → contact → note. If any step fails *within* this call, the route rolls back everything *it* created in reverse order (same semantics as before) and returns the friendly error. Returns `{ created: CreatedEntity[], trackedIds: RollbackId[] }` — the client keeps `trackedIds` so it can call rollback if a later phase fails.
-2. **`POST /api/create/associate`** (`maxDuration = 60`) — body: `{ partnerCompanyId, customerCompanyId, partnerName, customerName, portalId }`. Creates the parent-company association via `associationTypeId: 13`. Does **not** attempt to delete either company on failure — cleanup is the client's job.
-3. **`POST /api/create/rollback`** (`maxDuration = 60`) — body: `{ ids: Array<{ type: "company" | "contact" | "note", id, label? }> }`. Whitelist enforced (no arbitrary-type deletions); max 8 IDs per call; 404s are treated as already-gone and counted as success.
+1. **`POST /api/jobs/create`** — client enqueues a job. The route validates, captures the post-refresh HubSpot access token, writes a `pending` row in the `jobs` table, and returns `{ jobId }` immediately. Idempotency via `x-idempotency-key` backed by the `idempotency_keys` table (30s TTL).
+2. **In-process worker (`lib/job-runner.ts`)** — started by `instrumentation.ts::register()` when `RUN_WORKER=1`. Loop ticks every 500ms, atomically claims one `pending` job (txn: SELECT → UPDATE to `running`), runs the full flow (partner side → customer side → associate → mark `succeeded`). On any failure: rolls back via `rollbackEntities`, records `kept` list on partial rollback failure, marks `failed`. On boot, marks any leftover `running` jobs as `failed` (process restart reconciliation).
+3. **`GET /api/jobs/:id`** — client polls every 2s. Returns `{ status, phase, phase_started_at, created, tracked_ids, error, code, raw_status, kept }`. Scoped to `session.userEmail` so one authenticated user can't peek at another's job.
 
-The **client** (`app/page.tsx handleSubmit`) orchestrates: partner side → customer side → associate, accumulating `trackedIds` across successful calls. If any *later* phase fails while *earlier* phases succeeded, the client POSTs the accumulated IDs to `/api/create/rollback` before surfacing the friendly error. The user-visible contract matches the old single-route flow: either everything lands in HubSpot or nothing does.
+The **client** (`app/page.tsx handleSubmit`) enqueues the job, then polls `/api/jobs/:id`. On each poll it snaps the local progress clock to the server-reported `phase_started_at` so the UI advances as soon as the server transitions phases (no more elapsed-time estimation race). On terminal `succeeded`, renders `created` entries. On terminal `failed`, surfaces `error` + any `kept` list.
 
-Idempotency is per-call — each route keeps its own 30s in-memory `Set` keyed on `x-idempotency-key`.
+Shared HubSpot primitives live in `lib/hubspot-entities.ts` (`createCompany`, `createContact`, `createNote`, `patchCompanyDomain`, `associateCompanies`, `rollbackEntities`, `hubspotRecordUrl`). Each primitive takes an injected fetch impl for tests and has a 30s AbortController timeout so a hung HubSpot endpoint can't burn the whole worker run. `createNote` uses association type IDs `190` (company↔note) and `202` (contact↔note); contacts associate to their company via `associationTypeId: 1`; parent-company association uses type `13`.
 
-`createNote` uses association type IDs `190` (company↔note) and `202` (contact↔note), hard-coded from HubSpot's HUBSPOT_DEFINED catalogue. Contacts associate to their company via `associationTypeId: 1`.
+### SQLite state (`lib/db.ts`)
+
+`lib/db.ts::getDb()` opens `$DATA_DIR/hsselfservice.db` (default `./data`, container-time `/data`) with WAL + migrations. Tables:
+
+- `jobs` — `(id, user_email, status ∈ {pending,running,succeeded,failed}, phase, payload_json, created_json, tracked_ids_json, error, raw_status, code, kept_json, created_at, updated_at)`
+- `idempotency_keys` — `(key, created_at)`, lazily pruned on each `claimIdempotencyKey(key)` call.
+- `schema_migrations` — migration ledger; migrations live inline in `lib/db.ts::MIGRATIONS` and run on first DB open.
 
 ### Client (`app/page.tsx`)
 
@@ -76,4 +84,16 @@ This repo uses OpenSpec for change proposals. Proposals live in `openspec/change
 
 ## Deployment
 
-Vercel-native. No `vercel.json`. Push to the connected Git repo → Vercel builds. The `prebuild` hook runs theme sync if `TWEAKCN_URL` is set in Vercel env. Basic-auth and OAuth env vars must all be set in Vercel project settings, and `HUBSPOT_REDIRECT_URI` must match the HubSpot OAuth app's configured redirect exactly.
+Self-hosted on `yorizoncasey` alongside y_prmcrm/flows, behind Caddy at `https://hsselfservice.cdit-dev.de`.
+
+**Image**: `.github/workflows/publish.yml` builds + pushes `ghcr.io/yorizon-product/y_hsselfservice:{main,sha-<short>}` on every push to `master` (skipped for openspec/docs-only changes). Multi-stage `Dockerfile`: deps → `next build` → slim Node 22 runtime with Next.js standalone output, non-root user `app` (uid 10001), `/data` volume, `/api/health` healthcheck.
+
+**Compose** (`docker-compose.yml`): single `hsselfservice` container, binds `127.0.0.1:8081`, `env_file: .env` on the host, `./data:/data` bind mount, 512m memory, `RUN_WORKER=1` so the in-process job worker boots.
+
+**Deploy**: `sudo /srv/hsselfservice/scripts/deploy.sh` — git fast-forward + `docker compose pull` + `docker compose up -d --wait`. `--ref <git-sha>` rolls back to that specific GHCR image tag.
+
+**Caddy** (`Caddyfile.snippet`): terminates TLS via ACME, proxies to `127.0.0.1:8081`, adds HSTS + X-Content-Type-Options, writes JSON logs to `/var/log/caddy/hsselfservice.log`.
+
+**Env**: `.env` on host at `/srv/hsselfservice/.env` (0600, owner `hsselfservice:hsselfservice`). Includes the HubSpot OAuth creds, `SESSION_SECRET`, `BASIC_AUTH_*`, `PORTAL_STATUS_POLL*`, and `DATA_DIR=/data`. `HUBSPOT_REDIRECT_URI` must be `https://hsselfservice.cdit-dev.de/api/auth/callback` and match the HubSpot OAuth app's configured redirect exactly.
+
+**State**: SQLite at `/data/hsselfservice.db`. Inspect with `docker compose exec hsselfservice sqlite3 /data/hsselfservice.db`. On process restart the worker marks any `running` jobs as `failed` with a restart message — no partial-resume logic, so any HubSpot records created up to that point may remain and need manual cleanup.
