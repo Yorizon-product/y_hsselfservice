@@ -115,26 +115,31 @@ test("pollCompanyReadiness returns on first-attempt success", async () => {
   assert.match(logs[0], /poll 1\/3 company=123 .* class=success/);
 });
 
-test("pollCompanyReadiness keeps polling through failure and succeeds on later retry (Yorizon retry pattern)", async () => {
-  // Yorizon's automation has been observed to write 'failed' first then
-  // 'successfully' ~80s later on its own retry. We must not short-circuit.
+test("pollCompanyReadiness short-circuits on first 'failed' without further polls", async () => {
+  // Yorizon's downstream service rejects duplicate creates, so waiting for
+  // their internal retry risks cascading conflicts. We surface the first
+  // 'failed' immediately rather than hoping a later retry recovers.
   const fetchImpl = makeFetch([
     "22/04/2026 10:00:02.000: Company creation failed",
-    "22/04/2026 10:00:02.000: Company creation failed",
-    "22/04/2026 10:01:30.000: Company created successfully",
+    "should-not-be-called",
+    "should-not-be-called",
   ]);
   const logs: string[] = [];
-  await pollCompanyReadiness(
-    "tok",
-    "123",
-    companyCreatedAt,
-    (l) => logs.push(l),
-    { delaysMs: [0, 10, 30], sleep: async () => {}, fetchImpl: fetchImpl as any }
+  await assert.rejects(
+    pollCompanyReadiness(
+      "tok",
+      "123",
+      companyCreatedAt,
+      (l) => logs.push(l),
+      { delaysMs: [0, 10, 30], sleep: async () => {}, fetchImpl: fetchImpl as any }
+    ),
+    (err: any) => err instanceof PortalStatusError && err.code === "PORTAL_CREATION_FAILED"
   );
-  assert.equal(logs.length, 3);
+  // Two log lines: the poll attempt + the poll-result decision. Critically,
+  // there is no "poll 2/3" line — we stopped before calling fetch again.
+  assert.equal(logs.length, 2);
   assert.match(logs[0], /poll 1\/3 .* class=failed/);
-  assert.match(logs[1], /poll 2\/3 .* class=failed/);
-  assert.match(logs[2], /poll 3\/3 .* class=success/);
+  assert.match(logs[1], /poll-result .* decision=PORTAL_CREATION_FAILED/);
 });
 
 test("pollCompanyReadiness throws PORTAL_CREATION_FAILED when all polls return failed", async () => {
