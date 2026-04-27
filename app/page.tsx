@@ -594,23 +594,10 @@ export default function Home() {
           </p>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
-          {/* Dashboard column — primary surface */}
-          <section className="lg:col-span-3 order-2 lg:order-1">
-            <DashboardPanel
-              active={dashboardActive}
-              recent={dashboardRecent}
-              expandedJobId={expandedJobId}
-              setExpandedJobId={setExpandedJobId}
-              liveProgressJobId={liveProgressJobId}
-              liveProgress={progress}
-              t={t}
-            />
-          </section>
-
-          {/* Create-new sidebar — sticky on lg+ */}
-          <aside className="lg:col-span-2 order-1 lg:order-2">
-            <div className="lg:sticky lg:top-24 space-y-4 animate-in">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          {/* Create form — primary action, ~66% on lg+ */}
+          <section className="lg:col-span-2 order-1">
+            <div className="animate-in">
               <CreateForm
                 mode={mode}
                 setMode={setMode}
@@ -638,6 +625,21 @@ export default function Home() {
                 cooldown={cooldown}
                 submitLabel={submitLabel}
                 error={error}
+                t={t}
+              />
+            </div>
+          </section>
+
+          {/* Dashboard — observation surface, ~33% on lg+ */}
+          <aside className="lg:col-span-1 order-2">
+            <div className="animate-in">
+              <DashboardPanel
+                active={dashboardActive}
+                recent={dashboardRecent}
+                expandedJobId={expandedJobId}
+                setExpandedJobId={setExpandedJobId}
+                liveProgressJobId={liveProgressJobId}
+                liveProgress={progress}
                 t={t}
               />
             </div>
