@@ -250,6 +250,11 @@ export default function Home() {
   const [dashboardActive, setDashboardActive] = useState<JobSummary[]>([]);
   const [dashboardRecent, setDashboardRecent] = useState<JobSummary[]>([]);
   const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
+  // The polling effect publishes its `refresh()` here so handleSubmit
+  // can kick an immediate fetch right after enqueue (otherwise the user
+  // waits up to the 30s idle interval before the dashboard reflects
+  // their new job).
+  const dashboardRefreshRef = useRef<(() => void) | null>(null);
 
   const { theme, cycle: cycleTheme } = useTheme();
   const { mode, setMode } = useMode();
@@ -292,6 +297,8 @@ export default function Home() {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     const refresh = async () => {
+      if (cancelled) return;
+      if (timer) { clearTimeout(timer); timer = null; }
       try {
         const res = await fetch("/api/jobs");
         if (!res.ok) return;
@@ -305,10 +312,12 @@ export default function Home() {
         if (!cancelled) timer = setTimeout(refresh, 30_000);
       }
     };
+    dashboardRefreshRef.current = refresh;
     refresh();
     return () => {
       cancelled = true;
       if (timer) clearTimeout(timer);
+      dashboardRefreshRef.current = null;
     };
   }, [loggedIn]);
 
@@ -414,6 +423,9 @@ export default function Home() {
         throw new Error(enqueueData.error || t("error.generic"));
       }
       const jobId = enqueueData.jobId as string;
+      // Make the dashboard panel show the new running job immediately
+      // (otherwise the user waits up to the 30s idle poll cycle).
+      dashboardRefreshRef.current?.();
 
       // Poll until terminal. The `new Promise` shape lets us reject from
       // inside the inner setTimeout chain without wrapping the whole
@@ -450,6 +462,8 @@ export default function Home() {
 
       setResults(terminalJob.created as CreatedEntity[]);
       setPartner(emptyCompany()); setCustomer(emptyCompany());
+      // Pull the freshly-completed job into "recent" right away.
+      dashboardRefreshRef.current?.();
       // Only fires when the tab is hidden — see lib/notifications.ts.
       const bodyKey: TranslationKey =
         doPartner && doCustomer ? "notify.success.body.both"

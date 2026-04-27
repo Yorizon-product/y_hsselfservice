@@ -1,6 +1,6 @@
 {
   "name": "y_hsselfservice",
-  "version": "1.0.32",
+  "version": "1.0.33",
   "private": true,
   "packageManager": "npm@11.12.1",
   "scripts": {
