@@ -69,6 +69,64 @@ test("claimIdempotencyKey returns true once, false for duplicate within TTL", as
   assert.equal(claimIdempotencyKey("def"), true);
 });
 
+test("recordWebhookEvent stores a new event and dedups on event_id", async () => {
+  const { recordWebhookEvent, recentEventsForObject } = await import("../db.ts");
+  const ev = {
+    eventId: "evt-1",
+    subscriptionType: "company.propertyChange",
+    objectId: "co-42",
+    propertyName: "portal_status_update",
+    propertyValue: "24/04/2026 15:45:18.829: Company created successfully",
+    occurredAt: "2026-04-24T15:45:18.829Z",
+    rawJson: JSON.stringify({ eventId: "evt-1" }),
+  };
+  assert.equal(recordWebhookEvent(ev), true);
+  // Same eventId — HubSpot retry — must be ignored.
+  assert.equal(recordWebhookEvent(ev), false);
+  const rows = recentEventsForObject("co-42", "portal_status_update");
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].property_value, ev.propertyValue);
+});
+
+test("recentEventsForObject returns most recent first and respects limit + sinceIso", async () => {
+  const { recordWebhookEvent, recentEventsForObject } = await import("../db.ts");
+  recordWebhookEvent({
+    eventId: "e-old",
+    subscriptionType: "company.propertyChange",
+    objectId: "co-7",
+    propertyName: "portal_status_update",
+    propertyValue: "old",
+    occurredAt: "2026-04-24T10:00:00.000Z",
+    rawJson: "{}",
+  });
+  recordWebhookEvent({
+    eventId: "e-new",
+    subscriptionType: "company.propertyChange",
+    objectId: "co-7",
+    propertyName: "portal_status_update",
+    propertyValue: "new",
+    occurredAt: "2026-04-24T11:00:00.000Z",
+    rawJson: "{}",
+  });
+  const all = recentEventsForObject("co-7", "portal_status_update");
+  assert.equal(all.length, 2);
+  assert.equal(all[0].property_value, "new");
+  const since = recentEventsForObject(
+    "co-7",
+    "portal_status_update",
+    "2026-04-24T10:30:00.000Z"
+  );
+  assert.equal(since.length, 1);
+  assert.equal(since[0].property_value, "new");
+  const limited = recentEventsForObject("co-7", "portal_status_update", undefined, 1);
+  assert.equal(limited.length, 1);
+});
+
+test("recentEventsForObject returns empty when no events match", async () => {
+  const { recentEventsForObject } = await import("../db.ts");
+  assert.deepEqual(recentEventsForObject("does-not-exist", "portal_status_update"), []);
+});
+
 test("claimIdempotencyKey re-accepts a key after the TTL prunes it", async () => {
   const { claimIdempotencyKey, getDb } = await import("../db.ts");
   assert.equal(claimIdempotencyKey("ttl-key"), true);

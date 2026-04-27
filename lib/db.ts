@@ -89,6 +89,25 @@ const MIGRATIONS: { id: number; name: string; sql: string }[] = [
       );
     `,
   },
+  {
+    id: 2,
+    name: "webhook_events",
+    sql: `
+      CREATE TABLE IF NOT EXISTS webhook_events (
+        event_id TEXT PRIMARY KEY,
+        subscription_type TEXT NOT NULL,
+        object_id TEXT NOT NULL,
+        property_name TEXT,
+        property_value TEXT,
+        occurred_at TEXT NOT NULL,
+        received_at TEXT NOT NULL DEFAULT (datetime('now')),
+        raw_json TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_webhook_events_object_property
+        ON webhook_events(object_id, property_name, occurred_at);
+    `,
+  },
 ];
 
 function runMigrations(db: Database.Database): void {
@@ -146,4 +165,85 @@ export function claimIdempotencyKey(key: string, ttlSeconds = 30): boolean {
     }
     throw e;
   }
+}
+
+// ─── webhook_events helpers ────────────────────────────────────────────
+
+export type WebhookEventRow = {
+  event_id: string;
+  subscription_type: string;
+  object_id: string;
+  property_name: string | null;
+  property_value: string | null;
+  occurred_at: string;
+  received_at: string;
+  raw_json: string;
+};
+
+export type WebhookEventInput = {
+  eventId: string;
+  subscriptionType: string;
+  objectId: string;
+  propertyName?: string | null;
+  propertyValue?: string | null;
+  occurredAt: string;
+  rawJson: string;
+};
+
+const WEBHOOK_EVENT_RETENTION_DAYS = 30;
+
+// Insert if new. Returns true if persisted, false if a row with the same
+// event_id already existed (HubSpot retry). Lazy-prunes events older
+// than the retention window on each insert to keep the table bounded.
+export function recordWebhookEvent(e: WebhookEventInput): boolean {
+  const db = getDb();
+  db.prepare(
+    `DELETE FROM webhook_events WHERE received_at < datetime('now', ? )`
+  ).run(`-${WEBHOOK_EVENT_RETENTION_DAYS} days`);
+  const res = db
+    .prepare(
+      `INSERT OR IGNORE INTO webhook_events
+        (event_id, subscription_type, object_id, property_name, property_value, occurred_at, raw_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      e.eventId,
+      e.subscriptionType,
+      e.objectId,
+      e.propertyName ?? null,
+      e.propertyValue ?? null,
+      e.occurredAt,
+      e.rawJson
+    );
+  return res.changes === 1;
+}
+
+// Returns the most recent webhook events for the given object+property,
+// in time-descending order. Used by the worker's "did the event already
+// arrive before I started waiting?" check.
+export function recentEventsForObject(
+  objectId: string,
+  propertyName: string,
+  sinceIso?: string,
+  limit = 10
+): WebhookEventRow[] {
+  const db = getDb();
+  if (sinceIso) {
+    return db
+      .prepare(
+        `SELECT * FROM webhook_events
+         WHERE object_id = ? AND property_name = ? AND occurred_at >= ?
+         ORDER BY occurred_at DESC
+         LIMIT ?`
+      )
+      .all(objectId, propertyName, sinceIso, limit) as WebhookEventRow[];
+  }
+  return db
+    .prepare(
+      `SELECT * FROM webhook_events
+       WHERE object_id = ? AND property_name = ?
+       ORDER BY occurred_at DESC
+       LIMIT ?`
+    )
+    .all(objectId, propertyName, limit) as WebhookEventRow[];
 }

@@ -12,6 +12,19 @@ const APP_VERSION = packageJson.version;
 type ContactFields = { firstname: string; lastname: string; email: string };
 type CompanyFields = { name: string; domain: string; contact: ContactFields };
 type CreatedEntity = { type: string; id: string; name: string; url: string };
+type JobSummary = {
+  id: string;
+  status: "pending" | "running" | "succeeded" | "failed";
+  phase: string | null;
+  phase_started_at: string | null;
+  created: CreatedEntity[];
+  error: string | null;
+  code: string | null;
+  raw_status: string | null;
+  kept: Array<{ type: string; id: string; url: string }> | null;
+  created_at: string;
+  updated_at: string;
+};
 
 const emptyContact = (): ContactFields => ({ firstname: "", lastname: "", email: "" });
 const emptyCompany = (): CompanyFields => ({ name: "", domain: "", contact: emptyContact() });
@@ -233,6 +246,11 @@ export default function Home() {
   const progressPhaseRef = useRef<Phase>("partner");
   const progressTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Dashboard data — loaded from /api/jobs.
+  const [dashboardActive, setDashboardActive] = useState<JobSummary[]>([]);
+  const [dashboardRecent, setDashboardRecent] = useState<JobSummary[]>([]);
+  const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
+
   const { theme, cycle: cycleTheme } = useTheme();
   const { mode, setMode } = useMode();
   const { t, locale, cycleLocale } = useTranslation();
@@ -265,6 +283,34 @@ export default function Home() {
       .catch(() => {})
       .finally(() => setAuthLoading(false));
   }, []);
+
+  // Dashboard polling. Refresh every 5s while there's at least one
+  // active job (tighter loop), every 30s otherwise. Stops when not
+  // logged in.
+  useEffect(() => {
+    if (!loggedIn) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const refresh = async () => {
+      try {
+        const res = await fetch("/api/jobs");
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled) return;
+        setDashboardActive(data.active ?? []);
+        setDashboardRecent(data.recent ?? []);
+        const nextDelay = (data.active?.length ?? 0) > 0 ? 5_000 : 30_000;
+        timer = setTimeout(refresh, nextDelay);
+      } catch {
+        if (!cancelled) timer = setTimeout(refresh, 30_000);
+      }
+    };
+    refresh();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [loggedIn]);
 
   const handleSignOut = () => { window.location.href = "/api/auth/logout"; };
 
@@ -530,6 +576,38 @@ export default function Home() {
               </button>
             </div>
 
+            {/* Dashboard — active + recent jobs */}
+            {(dashboardActive.length > 0 || dashboardRecent.length > 0) && (
+              <div className="animate-in mb-8">
+                {dashboardActive.length > 0 && (
+                  <div className="mb-4">
+                    <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-2 block">
+                      {t("dashboard.active")} ({dashboardActive.length})
+                    </span>
+                    <div className="space-y-2">
+                      {dashboardActive.map(j => (
+                        <JobRow key={j.id} job={j} expanded={expandedJobId === j.id}
+                          onToggle={() => setExpandedJobId(expandedJobId === j.id ? null : j.id)} t={t} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {dashboardRecent.length > 0 && (
+                  <div>
+                    <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-2 block">
+                      {t("dashboard.recent")}
+                    </span>
+                    <div className="space-y-2">
+                      {dashboardRecent.slice(0, 10).map(j => (
+                        <JobRow key={j.id} job={j} expanded={expandedJobId === j.id}
+                          onToggle={() => setExpandedJobId(expandedJobId === j.id ? null : j.id)} t={t} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Partner */}
             <div className="animate-in animate-in-delay-1">
               <Section title={t("partner.title")} badge={t("partner.badge")}
@@ -777,6 +855,91 @@ function ResultRow({ entity }: { entity: CreatedEntity }) {
       </div>
       <span className="text-xs font-mono text-muted-foreground group-hover:text-accent transition-colors">{entity.id} &rarr;</span>
     </a>
+  );
+}
+
+function statusDot(status: JobSummary["status"]): string {
+  if (status === "succeeded") return "bg-success";
+  if (status === "failed") return "bg-destructive";
+  if (status === "running") return "bg-primary animate-pulse";
+  return "bg-muted-foreground";
+}
+
+function relativeAge(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return `${d}d ago`;
+}
+
+function JobRow({ job, expanded, onToggle, t }: {
+  job: JobSummary;
+  expanded: boolean;
+  onToggle: () => void;
+  t: TFunc;
+}) {
+  const summary = job.created.length > 0
+    ? job.created.map(c => c.type).join(", ")
+    : job.status === "failed"
+      ? (job.error?.slice(0, 80) ?? "—")
+      : "—";
+  return (
+    <div className="rounded-lg bg-card border border-border overflow-hidden">
+      <button
+        onClick={onToggle}
+        className="w-full flex items-center justify-between p-3 hover:bg-muted/30 transition-colors text-left"
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${statusDot(job.status)}`} />
+          <div className="min-w-0">
+            <div className="text-xs font-mono uppercase tracking-wide text-muted-foreground">
+              {job.status}{job.phase ? ` · ${job.phase}` : ""}
+            </div>
+            <div className="text-sm truncate">{summary}</div>
+          </div>
+        </div>
+        <span className="text-xs font-mono text-muted-foreground shrink-0 ml-3">
+          {relativeAge(job.created_at)}
+        </span>
+      </button>
+      {expanded && (
+        <div className="px-3 pb-3 border-t border-border bg-muted/20">
+          {job.created.length > 0 && (
+            <div className="mt-3 space-y-2">
+              {job.created.map((e, i) => <ResultRow key={i} entity={e} />)}
+            </div>
+          )}
+          {job.error && (
+            <div className="mt-3 p-3 rounded-lg bg-destructive/10 border border-destructive/20">
+              <p className="text-xs text-destructive font-mono whitespace-pre-wrap break-words">
+                {job.error}
+                {job.raw_status ? `\n\nHubSpot reported: ${job.raw_status}` : ""}
+              </p>
+            </div>
+          )}
+          {job.kept && job.kept.length > 0 && (
+            <div className="mt-3">
+              <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-2 block">
+                {t("dashboard.kept")}
+              </span>
+              <div className="space-y-1">
+                {job.kept.map((k, i) => (
+                  <a key={i} href={k.url} target="_blank" rel="noopener noreferrer"
+                    className="block text-xs font-mono text-muted-foreground hover:text-accent transition-colors truncate">
+                    · {String(k.type).replace(/_/g, " ")} → {k.url}
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

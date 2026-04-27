@@ -78,6 +78,10 @@
   "theme.light": "Design: Hell. Klicken zum Wechseln.",
   "theme.dark": "Design: Dunkel. Klicken zum Wechseln.",
 
+  "dashboard.active": "Laufende Jobs",
+  "dashboard.recent": "Zuletzt erledigt",
+  "dashboard.kept": "In HubSpot belassene Datensätze",
+
   "language.switch": "Sprache: Deutsch. Klicken zum Wechseln.",
 
   "loading": "Laden...",

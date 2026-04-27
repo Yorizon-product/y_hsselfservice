@@ -12,6 +12,7 @@ import {
   type TrackedId,
 } from "./hubspot-entities";
 import { pollCompanyReadiness, PortalStatusError } from "./portal-status";
+import { waitForPortalStatusViaWebhook } from "./portal-status-waiter";
 
 // In-process job worker. Runs one job at a time on a 500ms tick. Lives
 // inside the Next.js Node process on self-hosted deployments; never
@@ -36,6 +37,10 @@ export type JobPayload = {
 
 const PORTAL_STATUS_POLL_ENABLED = process.env.PORTAL_STATUS_POLL !== "off";
 const PORTAL_STATUS_POLL_KEEP_ON_FAIL = process.env.PORTAL_STATUS_POLL_KEEP_ON_FAIL === "1";
+// Default: webhook-driven waits. Falls back to HubSpot API polling
+// when explicitly disabled — useful for debugging or as a kill-switch
+// if HubSpot's webhooks misbehave.
+const PORTAL_STATUS_VIA_WEBHOOK = process.env.PORTAL_STATUS_VIA_WEBHOOK !== "0";
 const VALID_ROLES = new Set(["Admin-RW", "User-RW", "User-RO"]);
 const DEFAULT_ROLE = "User-RO";
 
@@ -234,12 +239,21 @@ async function executeJob(job: JobRow): Promise<void> {
     }
 
     if (PORTAL_STATUS_POLL_ENABLED) {
-      await pollCompanyReadiness(
-        payload.accessToken,
-        company.id,
-        new Date(company.createdAt),
-        (line) => console.log(`${line} job=${job.id} side=${side}`)
-      );
+      const log = (line: string) => console.log(`${line} job=${job.id} side=${side}`);
+      if (PORTAL_STATUS_VIA_WEBHOOK) {
+        await waitForPortalStatusViaWebhook(
+          company.id,
+          new Date(company.createdAt),
+          { log }
+        );
+      } else {
+        await pollCompanyReadiness(
+          payload.accessToken,
+          company.id,
+          new Date(company.createdAt),
+          log
+        );
+      }
     }
 
     if (input.domain) {

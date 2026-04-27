@@ -50,11 +50,30 @@ Self-hosting means no 300s function cap — the full flow runs inside a single l
 
 1. **`POST /api/jobs/create`** — client enqueues a job. The route validates, captures the post-refresh HubSpot access token, writes a `pending` row in the `jobs` table, and returns `{ jobId }` immediately. Idempotency via `x-idempotency-key` backed by the `idempotency_keys` table (30s TTL).
 2. **In-process worker (`lib/job-runner.ts`)** — started by `instrumentation.ts::register()` when `RUN_WORKER=1`. Loop ticks every 500ms, atomically claims one `pending` job (txn: SELECT → UPDATE to `running`), runs the full flow (partner side → customer side → associate → mark `succeeded`). On any failure: rolls back via `rollbackEntities`, records `kept` list on partial rollback failure, marks `failed`. On boot, marks any leftover `running` jobs as `failed` (process restart reconciliation).
-3. **`GET /api/jobs/:id`** — client polls every 2s. Returns `{ status, phase, phase_started_at, created, tracked_ids, error, code, raw_status, kept }`. Scoped to `session.userEmail` so one authenticated user can't peek at another's job.
+3. **`GET /api/jobs/:id`** — client polls every 2s for one job. Returns `{ status, phase, phase_started_at, created, tracked_ids, error, code, raw_status, kept }`. Scoped to `session.userEmail`.
+4. **`GET /api/jobs`** — dashboard list endpoint. Returns `{ active, recent }` for the session user; active = pending+running oldest-first, recent = succeeded+failed newest-first capped at 50.
 
-The **client** (`app/page.tsx handleSubmit`) enqueues the job, then polls `/api/jobs/:id`. On each poll it snaps the local progress clock to the server-reported `phase_started_at` so the UI advances as soon as the server transitions phases (no more elapsed-time estimation race). On terminal `succeeded`, renders `created` entries. On terminal `failed`, surfaces `error` + any `kept` list.
+The **client** (`app/page.tsx handleSubmit`) enqueues the job, then polls `/api/jobs/:id`. On each poll it snaps the local progress clock to the server-reported `phase_started_at` so the UI advances as soon as the server transitions phases. The dashboard panel above the form polls `/api/jobs` every 5s while there's an active job (30s otherwise) so users see in-flight + recent jobs without re-submitting.
 
-Shared HubSpot primitives live in `lib/hubspot-entities.ts` (`createCompany`, `createContact`, `createNote`, `patchCompanyDomain`, `associateCompanies`, `rollbackEntities`, `hubspotRecordUrl`). Each primitive takes an injected fetch impl for tests and has a 30s AbortController timeout so a hung HubSpot endpoint can't burn the whole worker run. `createNote` uses association type IDs `190` (company↔note) and `202` (contact↔note); contacts associate to their company via `associationTypeId: 1`; parent-company association uses type `13`.
+Shared HubSpot primitives live in `lib/hubspot-entities.ts` (`createCompany`, `createContact`, `createNote`, `patchCompanyDomain`, `associateCompanies`, `rollbackEntities`, `hubspotRecordUrl`). Each primitive takes an injected fetch impl for tests and has a 30s AbortController timeout. `createNote` uses association type IDs `190` (company↔note) and `202` (contact↔note); contacts associate to their company via `associationTypeId: 1`; parent-company association uses type `13`.
+
+### Webhook-driven portal-status wait
+
+After the worker creates a company, it waits for Yorizon to write `portal_status_update`. Two implementations, controlled by `PORTAL_STATUS_VIA_WEBHOOK`:
+
+- **`=1` (default) — webhook path.** `lib/portal-status-waiter.ts::waitForPortalStatusViaWebhook` registers an in-memory listener on the `portal-status-events` bus, runs an initial DB sweep against `webhook_events` (catches the race where the event landed before the worker started waiting), and uses a slow 30s DB-read fallback as a safety net. Bounded by a 240s hard timeout.
+- **`=0` — legacy polling fallback.** Calls `lib/portal-status.ts::pollCompanyReadiness`, which hits HubSpot's API every `[60, 60, 120]` seconds. Kept as a kill-switch.
+
+Either path returns the same shape — resolve on success, throw `PortalStatusError` (`PORTAL_TIMEOUT` / `PORTAL_CREATION_FAILED` / `PORTAL_UNEXPECTED_STATE`) on failure — so the worker doesn't care which one ran.
+
+**`POST /webhooks/hubspot`** receives HubSpot's `propertyChange` events. HMAC v3 verification in `lib/hmac.ts`: signing string is `METHOD + URL + body + timestamp` over HMAC-SHA256, base64-encoded, with a 5-minute timestamp skew window. The URL fed into the HMAC comes from `WEBHOOK_PUBLIC_URL` (NOT request headers), since Caddy may rewrite `Host` and HubSpot signs the URL it actually called. Each event is dedup-inserted on `eventId` into `webhook_events`, then if it's a `portal_status_update` write, emitted on the in-process bus to wake any waiter. Always returns 200 (so HubSpot doesn't retry the whole batch over per-event hiccups) — except 401 on bad signature, 400 on bad JSON, 503 if the secret env isn't set.
+
+The HubSpot Private App needs:
+- Webhook target URL: `https://hsselfservice.cdit-dev.de/webhooks/hubspot`
+- Subscription: `company.propertyChange` filtered to `portal_status_update`
+- Client secret pasted into `.env` as `HUBSPOT_WEBHOOK_SECRET`
+
+This is a separate Private App from the OAuth app — each Private App allows only one webhook URL. y_prmcrm/flows uses its own Private App pointing at `flows.cdit-dev.de`.
 
 ### SQLite state (`lib/db.ts`)
 
@@ -62,6 +81,7 @@ Shared HubSpot primitives live in `lib/hubspot-entities.ts` (`createCompany`, `c
 
 - `jobs` — `(id, user_email, status ∈ {pending,running,succeeded,failed}, phase, payload_json, created_json, tracked_ids_json, error, raw_status, code, kept_json, created_at, updated_at)`
 - `idempotency_keys` — `(key, created_at)`, lazily pruned on each `claimIdempotencyKey(key)` call.
+- `webhook_events` — `(event_id PK, subscription_type, object_id, property_name, property_value, occurred_at, received_at, raw_json)`. Lazy-pruned on insert beyond 30-day retention. Indexed on `(object_id, property_name, occurred_at)` for fast waiter sweeps.
 - `schema_migrations` — migration ledger; migrations live inline in `lib/db.ts::MIGRATIONS` and run on first DB open.
 
 ### Client (`app/page.tsx`)

@@ -78,6 +78,10 @@
   "theme.light": "Theme: light. Click to cycle.",
   "theme.dark": "Theme: dark. Click to cycle.",
 
+  "dashboard.active": "Active jobs",
+  "dashboard.recent": "Recent jobs",
+  "dashboard.kept": "Records kept in HubSpot",
+
   "language.switch": "Language: English. Click to switch.",
 
   "loading": "Loading...",
