@@ -83,6 +83,7 @@
   "dashboard.kept": "Records kept in HubSpot",
   "dashboard.empty": "No jobs yet — create one on the right.",
   "dashboard.queued": "Queued for processing",
+  "dashboard.phase.associate": "Association",
   "create.title": "New entities",
 
   "language.switch": "Language: English. Click to switch.",

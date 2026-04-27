@@ -12,6 +12,7 @@ const APP_VERSION = packageJson.version;
 type ContactFields = { firstname: string; lastname: string; email: string };
 type CompanyFields = { name: string; domain: string; contact: ContactFields };
 type CreatedEntity = { type: string; id: string; name: string; url: string };
+type PhaseTiming = { startedAt: string; finishedAt?: string };
 type JobSummary = {
   id: string;
   status: "pending" | "running" | "succeeded" | "failed";
@@ -22,6 +23,7 @@ type JobSummary = {
   code: string | null;
   raw_status: string | null;
   kept: Array<{ type: string; id: string; url: string }> | null;
+  timings?: Record<string, PhaseTiming>;
   created_at: string;
   updated_at: string;
 };
@@ -1124,6 +1126,65 @@ function relativeAge(iso: string): string {
   return `${d}d ago`;
 }
 
+// Compact "1m 30s" / "12s" / "1h 4m" formatter for elapsed durations.
+function formatDuration(ms: number): string {
+  if (ms < 0) ms = 0;
+  const totalS = Math.round(ms / 1000);
+  if (totalS < 60) return `${totalS}s`;
+  const m = Math.floor(totalS / 60);
+  const s = totalS % 60;
+  if (m < 60) return s > 0 ? `${m}m ${s}s` : `${m}m`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${m % 60}m`;
+}
+
+// For an active phase the finishedAt isn't set yet — measure against now.
+function phaseElapsedMs(timing: PhaseTiming, now = Date.now()): number {
+  const start = new Date(timing.startedAt).getTime();
+  const end = timing.finishedAt ? new Date(timing.finishedAt).getTime() : now;
+  return end - start;
+}
+
+// Wall-clock duration of the whole job. Falls back to (now - created_at)
+// when the job is still running so the UI can tick the elapsed counter.
+function totalDurationMs(job: JobSummary, now = Date.now()): number {
+  const start = new Date(job.created_at).getTime();
+  const end = job.status === "succeeded" || job.status === "failed"
+    ? new Date(job.updated_at).getTime()
+    : now;
+  return end - start;
+}
+
+function PhaseTimingsTable({ timings, t }: { timings: Record<string, PhaseTiming>; t: TFunc }) {
+  const order: Array<"partner" | "customer" | "associate"> = ["partner", "customer", "associate"];
+  const present = order.filter(p => timings[p]);
+  if (present.length === 0) return null;
+  const labelOf = (p: string): string => {
+    if (p === "partner") return t("partner.title");
+    if (p === "customer") return t("customer.title");
+    if (p === "associate") return t("dashboard.phase.associate");
+    return p;
+  };
+  return (
+    <div className="pt-3 grid grid-cols-2 gap-x-4 gap-y-1">
+      {present.map(p => {
+        const tg = timings[p];
+        const ms = phaseElapsedMs(tg);
+        const inFlight = !tg.finishedAt;
+        return (
+          <div key={p} className="flex items-center justify-between text-xs">
+            <span className={`font-mono ${inFlight ? "text-primary" : "text-muted-foreground"}`}>
+              {labelOf(p)}
+              {inFlight && <span className="ml-1 text-[10px] uppercase tracking-wider">live</span>}
+            </span>
+            <span className="font-mono tabular-nums text-foreground">{formatDuration(ms)}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function StatusPill({ status }: { status: JobSummary["status"] }) {
   const styles: Record<JobSummary["status"], string> = {
     pending: "bg-muted text-muted-foreground border-border",
@@ -1182,7 +1243,12 @@ function JobRow({ job, expanded, onToggle, liveProgress, t }: {
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <span className="text-[11px] font-mono text-muted-foreground">{relativeAge(job.created_at)}</span>
+          <div className="flex flex-col items-end leading-tight">
+            <span className="text-[11px] font-mono text-muted-foreground">{relativeAge(job.created_at)}</span>
+            <span className="text-[10px] font-mono text-muted-foreground/70 tabular-nums">
+              {formatDuration(totalDurationMs(job))}
+            </span>
+          </div>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
             strokeLinecap="round" strokeLinejoin="round"
             className={`text-muted-foreground transition-transform ${expanded ? "rotate-180" : ""}`}
@@ -1198,6 +1264,9 @@ function JobRow({ job, expanded, onToggle, liveProgress, t }: {
             <div className="pt-3">
               <ProgressIndicator progress={liveProgress} t={t} />
             </div>
+          )}
+          {job.timings && Object.keys(job.timings).length > 0 && (
+            <PhaseTimingsTable timings={job.timings} t={t} />
           )}
           {job.created.length > 0 && (
             <div className="pt-3 space-y-2">

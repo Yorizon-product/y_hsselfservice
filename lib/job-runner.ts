@@ -1,4 +1,4 @@
-import { getDb, type JobRow } from "./db";
+import { getDb, recordPhaseStart, recordPhaseFinish, type JobRow } from "./db";
 import {
   createCompany,
   createContact,
@@ -130,6 +130,10 @@ function claimPendingJob(): JobRow | null {
     return { ...row, status: "running" };
   });
   return claim();
+}
+
+function readJob(id: string): JobRow | undefined {
+  return getDb().prepare("SELECT * FROM jobs WHERE id=?").get(id) as JobRow | undefined;
 }
 
 function setPhase(id: string, phase: JobPhase): void {
@@ -290,17 +294,23 @@ async function executeJob(job: JobRow): Promise<void> {
     let customerCompanyId: string | null = null;
 
     if (payload.partner) {
+      recordPhaseStart(job.id, "partner");
       const r = await doSide("partner", payload.partner, partnerRole!);
+      recordPhaseFinish(job.id, "partner");
       partnerCompanyId = r.companyId;
     }
     if (payload.customer) {
+      recordPhaseStart(job.id, "customer");
       const r = await doSide("customer", payload.customer, customerRole!);
+      recordPhaseFinish(job.id, "customer");
       customerCompanyId = r.companyId;
     }
     if (partnerCompanyId && customerCompanyId) {
       setPhase(job.id, "associate");
+      recordPhaseStart(job.id, "associate");
       console.log(`[worker] job=${job.id} associating partner=${partnerCompanyId} customer=${customerCompanyId}`);
       await associateCompanies(headers, partnerCompanyId, customerCompanyId);
+      recordPhaseFinish(job.id, "associate");
       appendCreated(job.id, {
         type: "Association",
         id: `${partnerCompanyId}↔${customerCompanyId}`,
@@ -315,6 +325,12 @@ async function executeJob(job: JobRow): Promise<void> {
     const portalCode = stepError instanceof PortalStatusError ? stepError.code : null;
     const rawStatus = stepError instanceof PortalStatusError ? stepError.rawStatus ?? null : null;
     const skipRollback = !!(portalCode && PORTAL_STATUS_POLL_KEEP_ON_FAIL);
+    // Stamp finishedAt for whichever phase was mid-flight so the
+    // dashboard can show how long the failed phase actually ran for.
+    const dyingPhase = (
+      readJob(job.id)?.phase as "partner" | "customer" | "associate" | null
+    ) ?? null;
+    if (dyingPhase) recordPhaseFinish(job.id, dyingPhase);
     console.error(`[worker] job=${job.id} failed: ${stepError.message}`);
 
     let kept: Array<{ type: string; id: string; url: string }> = [];

@@ -45,6 +45,7 @@ export async function GET(_req: NextRequest) {
     code: row.code,
     raw_status: row.raw_status,
     kept: row.kept_json ? JSON.parse(row.kept_json) : null,
+    timings: row.timings_json ? JSON.parse(row.timings_json) : {},
     created_at: sqliteToIsoZ(row.created_at),
     updated_at: sqliteToIsoZ(row.updated_at),
   });

@@ -25,9 +25,17 @@ export type JobRow = {
   raw_status: string | null;
   code: string | null;
   kept_json: string | null;
+  timings_json: string;
   created_at: string;
   updated_at: string;
 };
+
+// Per-phase wall-clock timing. Keyed on the JobPhase ("partner",
+// "customer", "associate"). Worker writes startedAt at phase entry,
+// finishedAt at phase exit. Stored as JSON on the jobs row so the
+// schema doesn't need a new column for each phase added later.
+export type PhaseTiming = { startedAt: string; finishedAt?: string };
+export type PhaseTimings = Record<string, PhaseTiming>;
 
 let _db: Database.Database | null = null;
 
@@ -106,6 +114,13 @@ const MIGRATIONS: { id: number; name: string; sql: string }[] = [
 
       CREATE INDEX IF NOT EXISTS idx_webhook_events_object_property
         ON webhook_events(object_id, property_name, occurred_at);
+    `,
+  },
+  {
+    id: 3,
+    name: "jobs_phase_timings",
+    sql: `
+      ALTER TABLE jobs ADD COLUMN timings_json TEXT NOT NULL DEFAULT '{}';
     `,
   },
 ];
@@ -260,4 +275,35 @@ export function recentEventsForObject(
        LIMIT ?`
     )
     .all(objectId, propertyName, limit) as WebhookEventRow[];
+}
+
+// ─── jobs phase-timing helpers ─────────────────────────────────────────
+
+function readJobTimings(jobId: string): PhaseTimings {
+  const row = getDb().prepare("SELECT timings_json FROM jobs WHERE id=?").get(jobId) as
+    | { timings_json: string | null }
+    | undefined;
+  if (!row?.timings_json) return {};
+  try { return JSON.parse(row.timings_json) as PhaseTimings; } catch { return {}; }
+}
+
+function writeJobTimings(jobId: string, t: PhaseTimings): void {
+  getDb()
+    .prepare(`UPDATE jobs SET timings_json=?, updated_at=datetime('now') WHERE id=?`)
+    .run(JSON.stringify(t), jobId);
+}
+
+export function recordPhaseStart(jobId: string, phase: string): void {
+  const t = readJobTimings(jobId);
+  // Don't overwrite startedAt if the phase was already started (e.g.
+  // worker resume after a restart that didn't mark this phase done).
+  if (!t[phase]?.startedAt) t[phase] = { ...(t[phase] ?? {}), startedAt: new Date().toISOString() };
+  writeJobTimings(jobId, t);
+}
+
+export function recordPhaseFinish(jobId: string, phase: string): void {
+  const t = readJobTimings(jobId);
+  const prev = t[phase] ?? { startedAt: new Date().toISOString() };
+  t[phase] = { ...prev, finishedAt: new Date().toISOString() };
+  writeJobTimings(jobId, t);
 }

@@ -83,6 +83,7 @@
   "dashboard.kept": "In HubSpot belassene Datensätze",
   "dashboard.empty": "Noch keine Jobs — erstelle einen rechts.",
   "dashboard.queued": "In der Warteschlange",
+  "dashboard.phase.associate": "Verknüpfung",
   "create.title": "Neue Entitäten",
 
   "language.switch": "Sprache: Deutsch. Klicken zum Wechseln.",
