@@ -553,7 +553,7 @@ export default function Home() {
                 {t("auth.connectDescription")}
               </p>
               <a href="/api/auth/install"
-                className="block w-full min-h-[44px] py-3 rounded-pill font-button font-semibold text-sm uppercase tracking-wide transition-colors text-center bg-primary text-primary-foreground hover:bg-primary/90 cursor-pointer">
+                className="block w-full min-h-[44px] py-3 rounded-md font-button font-semibold text-sm uppercase tracking-wide transition-colors text-center bg-primary text-primary-foreground hover:bg-primary/90 cursor-pointer">
                 {t("auth.connect")}
               </a>
             </div>
@@ -669,14 +669,13 @@ function TopBar({
   rightSlot: React.ReactNode;
 }) {
   return (
-    <header className="sticky top-0 z-30 border-b border-border bg-background/80 backdrop-blur-md">
+    <header className="sticky top-0 z-30 border-b border-border dark:border-white/10 bg-background dark:bg-zinc-950">
       <div className="max-w-6xl mx-auto h-14 px-4 sm:px-6 lg:px-8 flex items-center justify-between gap-4">
         <div className="flex items-center gap-2.5 min-w-0">
-          <div className="w-2 h-2 rounded-full bg-accent shrink-0" />
-          <span className="text-xs font-mono uppercase tracking-widest text-muted-foreground truncate">
+          <span className="text-sm font-semibold tracking-tight text-foreground">
             {t("header.appName")}
           </span>
-          <span className="text-xs font-mono text-muted-foreground/60 hidden sm:inline">v{version}</span>
+          <span className="text-xs font-mono text-muted-foreground/70 hidden sm:inline">v{version}</span>
         </div>
         <div className="flex items-center gap-2">
           {rightSlot}
@@ -701,8 +700,8 @@ function UserPill({
   onSignOut: () => void;
 }) {
   return (
-    <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-full bg-card border border-border">
-      <div className="w-1.5 h-1.5 rounded-full bg-success shrink-0" />
+    <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-sm bg-card border border-border">
+      <div className="w-1.5 h-1.5 rounded-sm bg-success shrink-0" />
       <span className="text-xs font-mono text-muted-foreground hidden sm:inline truncate max-w-[200px]">
         {email || connected}
         {portalId ? ` · ${portal} ${portalId}` : ""}
@@ -711,7 +710,7 @@ function UserPill({
         {portalId ? portalId : connected}
       </span>
       <button onClick={onSignOut}
-        className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors cursor-pointer pl-1.5 border-l border-border"
+        className="text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer pl-2 border-l border-border dark:border-white/10"
         aria-label={disconnect}>
         {disconnect}
       </button>
@@ -732,14 +731,7 @@ function DashboardPanel({
 }) {
   if (active.length === 0 && recent.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed border-border p-10 text-center">
-        <div className="mx-auto w-10 h-10 rounded-full bg-muted flex items-center justify-center mb-4">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-            strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground" aria-hidden="true">
-            <rect x="3" y="3" width="18" height="18" rx="2" />
-            <path d="M3 9h18M9 21V9" />
-          </svg>
-        </div>
+      <div className="rounded-md border border-border dark:border-white/10 p-6">
         <p className="text-sm text-muted-foreground">{t("dashboard.empty")}</p>
       </div>
     );
@@ -752,7 +744,7 @@ function DashboardPanel({
           <SectionLabel
             label={t("dashboard.active")}
             count={active.length}
-            indicator={<span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />}
+            indicator={null}
           />
           <div className="space-y-2">
             {active.map(j => (
@@ -791,10 +783,10 @@ function DashboardPanel({
 
 function SectionLabel({ label, count, indicator }: { label: string; count?: number; indicator?: React.ReactNode }) {
   return (
-    <div className="flex items-center gap-2 mb-3 px-1">
+    <div className="flex items-center gap-2 mb-2 px-1">
       {indicator}
-      <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-        {label}{typeof count === "number" ? ` · ${count}` : ""}
+      <span className="text-xs font-medium text-muted-foreground">
+        {label}{typeof count === "number" ? ` (${count})` : ""}
       </span>
     </div>
   );
@@ -837,9 +829,9 @@ function CreateForm(props: {
   } = props;
 
   return (
-    <div className="rounded-xl border border-border bg-card overflow-hidden shadow-sm">
+    <div className="rounded-md border border-border dark:border-white/10 bg-card overflow-hidden">
       {/* Header strip */}
-      <div className="px-5 py-4 border-b border-border flex items-center justify-between gap-3">
+      <div className="px-5 py-4 border-b border-border dark:border-white/10 flex items-center justify-between gap-3">
         <h2 className="text-sm font-semibold tracking-tight font-heading text-card-foreground">
           {t("create.title")}
         </h2>
@@ -861,7 +853,7 @@ function CreateForm(props: {
         {/* Role (simple mode shows shared role here; advanced mode tucks role into each side) */}
         {!isAdvanced && (
           <div>
-            <label className="block text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1.5">
+            <label className="block text-xs font-medium text-muted-foreground mb-1.5">
               {t("role.label")}
             </label>
             <select value={portalRole} onChange={(e) => setPortalRole(e.target.value)}
@@ -883,7 +875,7 @@ function CreateForm(props: {
           actionSlot={
             (!isAdvanced || partnerEnabled) ? (
               <button onClick={() => handleRandomize("partner")} type="button"
-                className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded-md bg-muted/50 border border-border text-muted-foreground hover:text-foreground hover:border-accent transition-colors cursor-pointer">
+                className="text-xs px-2 py-1 rounded-md bg-muted/40 border border-border text-muted-foreground hover:text-foreground hover:border-accent transition-colors cursor-pointer">
                 {t("entity.randomize")}
               </button>
             ) : null
@@ -905,7 +897,7 @@ function CreateForm(props: {
           actionSlot={
             (!isAdvanced || customerEnabled) ? (
               <button onClick={() => handleRandomize("customer")} type="button"
-                className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded-md bg-muted/50 border border-border text-muted-foreground hover:text-foreground hover:border-accent transition-colors cursor-pointer">
+                className="text-xs px-2 py-1 rounded-md bg-muted/40 border border-border text-muted-foreground hover:text-foreground hover:border-accent transition-colors cursor-pointer">
                 {t("entity.randomize")}
               </button>
             ) : null
@@ -919,8 +911,8 @@ function CreateForm(props: {
 
         {isAdvanced && (
           <div className="flex items-center gap-2 px-1">
-            <div className={`w-1.5 h-1.5 rounded-full ${partnerEnabled && customerEnabled ? "bg-success" : "bg-muted-foreground"}`} />
-            <span className={`text-[10px] font-mono uppercase tracking-wider ${partnerEnabled && customerEnabled ? "text-success" : "text-muted-foreground"}`}>
+            <div className={`w-1.5 h-1.5 rounded-sm ${partnerEnabled && customerEnabled ? "bg-success" : "bg-muted-foreground"}`} />
+            <span className={`text-xs ${partnerEnabled && customerEnabled ? "text-success" : "text-muted-foreground"}`}>
               {partnerEnabled && customerEnabled ? t("association.willCreate") : t("association.singleEntity")}
             </span>
           </div>
@@ -957,15 +949,15 @@ function SidePanel({
   children: React.ReactNode;
 }) {
   return (
-    <div className={`rounded-lg border ${disabled ? "border-dashed border-border opacity-60" : "border-border"} bg-background/40 transition-colors`}
+    <div className={`rounded-md border ${disabled ? "border-border dark:border-white/10 opacity-60" : "border-border dark:border-white/10"} bg-background/40 transition-colors`}
       aria-disabled={disabled || undefined}>
-      <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-border">
+      <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-border dark:border-white/10">
         <div className="flex items-center gap-2 min-w-0">
           {showCheckbox ? (
             <input type="checkbox" checked={checked} onChange={(e) => onCheckedChange?.(e.target.checked)}
               className="w-3.5 h-3.5 rounded accent-primary cursor-pointer" aria-label={enableLabel || `Enable ${title}`} />
           ) : (
-            <div className="w-1.5 h-1.5 rounded-full bg-accent" />
+            <div className="w-1.5 h-1.5 rounded-sm bg-accent" />
           )}
           <span className="text-xs font-semibold tracking-tight font-heading text-card-foreground truncate">{title}</span>
           {badge && <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-muted text-muted-foreground border border-border hidden sm:inline">{badge}</span>}
@@ -995,7 +987,7 @@ function ProgressIndicator({ progress, t }: { progress: Progress; t: TFunc }) {
 
   return (
     <div
-      className="mt-4 px-3 py-3 rounded-lg bg-muted/50 border border-border"
+      className="mt-4 px-3 py-3 rounded-md bg-muted/50 border border-border"
       role="status"
       aria-live="polite"
     >
@@ -1012,7 +1004,7 @@ function ProgressIndicator({ progress, t }: { progress: Progress; t: TFunc }) {
             return (
               <div
                 key={i}
-                className={`w-1.5 h-1.5 rounded-full transition-colors ${
+                className={`w-1.5 h-1.5 rounded-sm transition-colors ${
                   isDone ? "bg-primary" : isCurrent ? "bg-primary animate-pulse" : "bg-border"
                 }`}
                 aria-hidden="true"
@@ -1048,7 +1040,7 @@ function ProgressIndicator({ progress, t }: { progress: Progress; t: TFunc }) {
           </div>
         ) : (
           <div className="w-12 h-12 shrink-0 flex items-center justify-center">
-            <div className="w-3 h-3 rounded-full bg-primary animate-pulse" />
+            <div className="w-3 h-3 rounded-sm bg-primary animate-pulse" />
           </div>
         )}
         <div className="flex-1 min-w-0">
@@ -1073,18 +1065,18 @@ function ResultsDisplay({ results, t }: { results: CreatedEntity[]; t: TFunc }) 
     <div className="space-y-4">
       {partnerResults.length > 0 && (
         <div>
-          <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-2 block">{t("results.partner")}</span>
+          <span className="text-xs font-medium text-muted-foreground mb-2 block">{t("results.partner")}</span>
           <div className="space-y-2">{partnerResults.map((r, i) => <ResultRow key={i} entity={r} />)}</div>
         </div>
       )}
       {customerResults.length > 0 && (
         <div>
-          <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-2 block">{t("results.customer")}</span>
+          <span className="text-xs font-medium text-muted-foreground mb-2 block">{t("results.customer")}</span>
           <div className="space-y-2">{customerResults.map((r, i) => <ResultRow key={i} entity={r} />)}</div>
         </div>
       )}
       <div className="flex items-center gap-2 pt-2">
-        <div className={`w-1.5 h-1.5 rounded-full ${associationResult ? "bg-success" : "bg-muted-foreground"}`} />
+        <div className={`w-1.5 h-1.5 rounded-sm ${associationResult ? "bg-success" : "bg-muted-foreground"}`} />
         <span className={`text-xs font-mono ${associationResult ? "text-success" : "text-muted-foreground"}`}>
           {associationResult ? `${t("results.associationCreated")} (${associationResult.name})` : t("results.associationSkipped")}
         </span>
@@ -1097,7 +1089,7 @@ function ResultsDisplay({ results, t }: { results: CreatedEntity[]; t: TFunc }) 
 function ResultRow({ entity }: { entity: CreatedEntity }) {
   return (
     <a href={entity.url} target="_blank" rel="noopener noreferrer"
-      className="flex items-center justify-between p-3 rounded-lg bg-card border border-border hover:border-accent hover:shadow-md transition-all group cursor-pointer">
+      className="flex items-center justify-between p-3 rounded-md bg-card border border-border hover:border-accent hover:shadow-md transition-all group cursor-pointer">
       <div>
         <span className="text-xs font-mono text-muted-foreground uppercase">{entity.type}</span>
         <p className="text-sm font-medium">{entity.name}</p>
@@ -1193,8 +1185,8 @@ function StatusPill({ status }: { status: JobSummary["status"] }) {
     failed: "bg-destructive/10 text-destructive border-destructive/30",
   };
   return (
-    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-[10px] font-mono uppercase tracking-wider shrink-0 ${styles[status]}`}>
-      {status === "running" && <span className="w-1 h-1 rounded-full bg-current animate-pulse" />}
+    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-sm border text-[10px] font-mono uppercase tracking-wider shrink-0 ${styles[status]}`}>
+      {status === "running" && <span className="w-1 h-1 rounded-sm bg-current animate-pulse" />}
       {status}
     </span>
   );
@@ -1220,7 +1212,7 @@ function JobRow({ job, expanded, onToggle, liveProgress, t }: {
         : t("dashboard.queued");
   const isActive = job.status === "running" || job.status === "pending";
   return (
-    <div className={`rounded-lg border overflow-hidden transition-colors ${
+    <div className={`rounded-md border overflow-hidden transition-colors ${
       isActive ? "border-primary/30 bg-card" : "border-border bg-card hover:border-accent"
     }`}>
       <button
@@ -1232,7 +1224,7 @@ function JobRow({ job, expanded, onToggle, liveProgress, t }: {
           <div className="min-w-0 flex-1">
             <div className="text-sm text-foreground truncate">{summary}</div>
             {job.phase && isActive && (
-              <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mt-0.5">
+              <div className="text-xs text-muted-foreground mt-0.5">
                 {t(("poll.stage." + ({
                   partner: "creatingPartnerCompany",
                   customer: "creatingCustomerCompany",
@@ -1283,7 +1275,7 @@ function JobRow({ job, expanded, onToggle, liveProgress, t }: {
           )}
           {job.kept && job.kept.length > 0 && (
             <div>
-              <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-2 block">
+              <span className="text-xs font-medium text-muted-foreground mb-2 block">
                 {t("dashboard.kept")}
               </span>
               <div className="space-y-1">
@@ -1380,7 +1372,7 @@ function Input({ label, value, onChange, type = "text", placeholder, mono, disab
 }) {
   return (
     <div>
-      <label className="block text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1">{label}</label>
+      <label className="block text-xs font-medium text-muted-foreground mb-1">{label}</label>
       <input type={type} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
         disabled={disabled} tabIndex={disabled ? -1 : undefined}
         className={`w-full px-3 h-9 rounded-md text-sm bg-background border border-border text-foreground placeholder:text-muted-foreground/40 transition-colors hover:border-accent focus:border-accent focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed ${mono ? "font-mono text-xs" : ""}`} />
