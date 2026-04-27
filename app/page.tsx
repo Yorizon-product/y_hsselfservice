@@ -522,220 +522,127 @@ export default function Home() {
     );
   }
 
-  return (
-    <main id="main-content" className="min-h-screen flex items-start justify-center px-4 py-12 md:py-20">
-      <div className="w-full max-w-2xl">
-        {/* Header */}
-        <div className="animate-in mb-6">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-3">
-              <div className="w-2 h-2 rounded-full bg-accent" />
-              <span className="text-xs font-mono uppercase tracking-widest text-muted-foreground">
-                {t("header.appName")} · v{APP_VERSION}
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <LanguageSelector locale={locale} onCycle={cycleLocale} ariaLabel={t("language.switch")} />
-              <ThemeToggle theme={theme} onCycle={cycleTheme} ariaLabel={t(themeAriaKey)} />
+  // When a job is in flight, point the dashboard's running row at the
+  // live `progress` shape so it can render the existing
+  // <ProgressIndicator> inline. Avoids two surfaces showing the same
+  // progress (dashboard panel + inline block under the form).
+  const liveProgressJobId = loading && dashboardActive.length > 0 ? dashboardActive[0].id : null;
+
+  if (!loggedIn) {
+    return (
+      <main id="main-content" className="min-h-screen flex flex-col">
+        <TopBar
+          version={APP_VERSION}
+          t={t}
+          theme={theme}
+          themeAriaKey={themeAriaKey}
+          locale={locale}
+          cycleTheme={cycleTheme}
+          cycleLocale={cycleLocale}
+          rightSlot={null}
+        />
+        <div className="flex-1 flex items-start justify-center px-4 py-16 md:py-24">
+          <div className="w-full max-w-md">
+            <div className="animate-in">
+              <h1 className="text-3xl md:text-4xl font-bold tracking-tight font-heading text-card-foreground mb-3">
+                {t("header.title")}
+              </h1>
+              <p className="text-sm text-muted-foreground leading-relaxed mb-8">
+                {t("auth.connectDescription")}
+              </p>
+              <a href="/api/auth/install"
+                className="block w-full min-h-[44px] py-3 rounded-pill font-button font-semibold text-sm uppercase tracking-wide transition-colors text-center bg-primary text-primary-foreground hover:bg-primary/90 cursor-pointer">
+                {t("auth.connect")}
+              </a>
             </div>
           </div>
+        </div>
+      </main>
+    );
+  }
+
+  return (
+    <main id="main-content" className="min-h-screen flex flex-col">
+      <TopBar
+        version={APP_VERSION}
+        t={t}
+        theme={theme}
+        themeAriaKey={themeAriaKey}
+        locale={locale}
+        cycleTheme={cycleTheme}
+        cycleLocale={cycleLocale}
+        rightSlot={
+          <UserPill
+            email={userEmail}
+            portalId={portalId}
+            connected={t("auth.connected")}
+            portal={t("auth.portal")}
+            disconnect={t("auth.disconnect")}
+            onSignOut={handleSignOut}
+          />
+        }
+      />
+
+      <div className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-8 pb-16">
+        {/* Page intro */}
+        <div className="animate-in mb-8">
           <h1 className="text-2xl md:text-3xl font-bold tracking-tight font-heading text-card-foreground">
             {t("header.title")}
           </h1>
-          <p className="text-muted-foreground mt-2 text-sm leading-relaxed">
+          <p className="text-muted-foreground mt-1 text-sm">
             {t(subtitleKey)}
           </p>
         </div>
 
-        {/* Mode Toggle */}
-        {loggedIn && (
-          <div className="animate-in mb-6">
-            <SegmentedControl
-              value={mode}
-              onChange={setMode}
-              disabled={loading}
-              options={[
-                { value: "simple" as Mode, label: t("mode.simple") },
-                { value: "advanced" as Mode, label: t("mode.advanced") },
-              ]}
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
+          {/* Dashboard column — primary surface */}
+          <section className="lg:col-span-3 order-2 lg:order-1">
+            <DashboardPanel
+              active={dashboardActive}
+              recent={dashboardRecent}
+              expandedJobId={expandedJobId}
+              setExpandedJobId={setExpandedJobId}
+              liveProgressJobId={liveProgressJobId}
+              liveProgress={progress}
+              t={t}
             />
-          </div>
-        )}
+          </section>
 
-        {/* Auth */}
-        {!loggedIn ? (
-          <div className="animate-in animate-in-delay-1">
-            <Section title={t("auth.connect")}>
-              <p className="text-sm text-muted-foreground mb-4">{t("auth.connectDescription")}</p>
-              <a href="/api/auth/install"
-                className="block w-full min-h-[44px] py-2.5 rounded-pill font-button font-semibold text-sm uppercase tracking-wide transition-all text-center bg-primary text-primary-foreground hover:opacity-90">
-                {t("auth.connect")}
-              </a>
-            </Section>
-          </div>
-        ) : (
-          <>
-            {/* User indicator */}
-            <div className="animate-in flex items-center justify-between mb-6 px-3 py-2 rounded-lg bg-card border border-border">
-              <div className="flex items-center gap-2">
-                <div className="w-1.5 h-1.5 rounded-full bg-success" />
-                <span className="text-xs font-mono text-muted-foreground">
-                  {userEmail || t("auth.connected")}
-                  {portalId ? ` · ${t("auth.portal")} ${portalId}` : ""}
-                </span>
-              </div>
-              <button onClick={handleSignOut}
-                className="text-xs font-button min-h-[44px] text-muted-foreground hover:text-foreground transition-colors">
-                {t("auth.disconnect")}
-              </button>
+          {/* Create-new sidebar — sticky on lg+ */}
+          <aside className="lg:col-span-2 order-1 lg:order-2">
+            <div className="lg:sticky lg:top-24 space-y-4 animate-in">
+              <CreateForm
+                mode={mode}
+                setMode={setMode}
+                isAdvanced={isAdvanced}
+                partner={partner}
+                customer={customer}
+                partnerEnabled={partnerEnabled}
+                customerEnabled={customerEnabled}
+                setPartnerEnabled={setPartnerEnabled}
+                setCustomerEnabled={setCustomerEnabled}
+                portalRole={portalRole}
+                setPortalRole={setPortalRole}
+                partnerRole={partnerRole}
+                setPartnerRole={setPartnerRole}
+                customerRole={customerRole}
+                setCustomerRole={setCustomerRole}
+                updatePartner={updatePartner}
+                updatePartnerContact={updatePartnerContact}
+                updateCustomer={updateCustomer}
+                updateCustomerContact={updateCustomerContact}
+                handleRandomize={handleRandomize}
+                onSubmit={handleSubmit}
+                isValid={!!isValid}
+                loading={loading}
+                cooldown={cooldown}
+                submitLabel={submitLabel}
+                error={error}
+                t={t}
+              />
             </div>
-
-            {/* Dashboard — active + recent jobs */}
-            {(dashboardActive.length > 0 || dashboardRecent.length > 0) && (
-              <div className="animate-in mb-8">
-                {dashboardActive.length > 0 && (
-                  <div className="mb-4">
-                    <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-2 block">
-                      {t("dashboard.active")} ({dashboardActive.length})
-                    </span>
-                    <div className="space-y-2">
-                      {dashboardActive.map(j => (
-                        <JobRow key={j.id} job={j} expanded={expandedJobId === j.id}
-                          onToggle={() => setExpandedJobId(expandedJobId === j.id ? null : j.id)} t={t} />
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {dashboardRecent.length > 0 && (
-                  <div>
-                    <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-2 block">
-                      {t("dashboard.recent")}
-                    </span>
-                    <div className="space-y-2">
-                      {dashboardRecent.slice(0, 10).map(j => (
-                        <JobRow key={j.id} job={j} expanded={expandedJobId === j.id}
-                          onToggle={() => setExpandedJobId(expandedJobId === j.id ? null : j.id)} t={t} />
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Partner */}
-            <div className="animate-in animate-in-delay-1">
-              <Section title={t("partner.title")} badge={t("partner.badge")}
-                showCheckbox={isAdvanced} checked={partnerEnabled} onCheckedChange={setPartnerEnabled}
-                disabled={!partnerEnabled && isAdvanced} enableLabel={`${t("entity.enable")} ${t("partner.title")}`}
-                action={
-                  <div className="flex flex-wrap items-center gap-2">
-                    {isAdvanced && <RoleSelect value={partnerRole} onChange={setPartnerRole} disabled={!partnerEnabled} t={t} />}
-                    {(!isAdvanced || partnerEnabled) && (
-                      <button onClick={() => handleRandomize("partner")}
-                        className="text-xs px-2.5 py-1 rounded-md font-button min-h-[44px] font-medium transition-all bg-muted border border-border text-muted-foreground hover:text-foreground hover:border-accent">
-                        {t("entity.randomize")}
-                      </button>
-                    )}
-                  </div>
-                }>
-                <EntityFields company={partner} onCompanyChange={updatePartner} onContactChange={updatePartnerContact}
-                  disabled={isAdvanced && !partnerEnabled} t={t} namePlaceholder="Acme Corp" domainPlaceholder="acme.com" />
-              </Section>
-            </div>
-
-            {/* Customer */}
-            <div className="animate-in animate-in-delay-2">
-              <Section title={t("customer.title")} badge={t("customer.badge")}
-                showCheckbox={isAdvanced} checked={customerEnabled} onCheckedChange={setCustomerEnabled}
-                disabled={!customerEnabled && isAdvanced} enableLabel={`${t("entity.enable")} ${t("customer.title")}`}
-                action={
-                  <div className="flex flex-wrap items-center gap-2">
-                    {isAdvanced && <RoleSelect value={customerRole} onChange={setCustomerRole} disabled={!customerEnabled} t={t} />}
-                    {(!isAdvanced || customerEnabled) && (
-                      <button onClick={() => handleRandomize("customer")}
-                        className="text-xs px-2.5 py-1 rounded-md font-button min-h-[44px] font-medium transition-all bg-muted border border-border text-muted-foreground hover:text-foreground hover:border-accent">
-                        {t("entity.randomize")}
-                      </button>
-                    )}
-                  </div>
-                }>
-                <EntityFields company={customer} onCompanyChange={updateCustomer} onContactChange={updateCustomerContact}
-                  disabled={isAdvanced && !customerEnabled} t={t} namePlaceholder="Widget Inc" domainPlaceholder="widget.io" />
-              </Section>
-            </div>
-
-            {/* Portal Role (Simple mode only) */}
-            {!isAdvanced && (
-              <div className="animate-in animate-in-delay-3">
-                <Section title={t("role.sectionTitle")}>
-                  <div>
-                    <label className="block text-sm font-medium text-muted-foreground mb-1.5 truncate">{t("role.label")}</label>
-                    <select value={portalRole} onChange={(e) => setPortalRole(e.target.value)}
-                      className="w-full px-3 h-[50px] rounded-sm text-base bg-card border border-border text-foreground transition-colors">
-                      <option value="Admin-RW">{t("role.admin")}</option>
-                      <option value="User-RW">{t("role.rw")}</option>
-                      <option value="User-RO">{t("role.ro")}</option>
-                    </select>
-                  </div>
-                </Section>
-              </div>
-            )}
-
-            {/* Association Status (Advanced mode) */}
-            {isAdvanced && (
-              <div className="animate-in flex items-center gap-2 mb-4 px-1">
-                <div className={`w-1.5 h-1.5 rounded-full ${partnerEnabled && customerEnabled ? "bg-success" : "bg-muted-foreground"}`} />
-                <span className={`text-xs font-mono ${partnerEnabled && customerEnabled ? "text-success" : "text-muted-foreground"}`}>
-                  {partnerEnabled && customerEnabled ? t("association.willCreate") : t("association.singleEntity")}
-                </span>
-              </div>
-            )}
-
-            {/* First-visit hint */}
-            {!isAdvanced && !hintDismissed && (
-              <div className="animate-in flex items-center justify-between mb-4 px-3 py-2 rounded-lg bg-muted border border-border">
-                <span className="text-xs text-muted-foreground">{t("hint.advancedMode")}</span>
-                <button onClick={() => { setHintDismissed(true); localStorage.setItem("hint-dismissed", "true"); }}
-                  className="text-xs font-button min-h-[44px] text-muted-foreground hover:text-foreground transition-colors ml-2">
-                  {t("hint.dismiss")}
-                </button>
-              </div>
-            )}
-
-            {/* Submit */}
-            <button onClick={handleSubmit} disabled={!isValid || loading || cooldown > 0}
-              className="w-full min-h-[44px] py-3 rounded-pill font-button font-semibold text-sm uppercase tracking-wide transition-all bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed">
-              {loading ? t("submit.creating") : cooldown > 0 ? t("submit.retryIn", { seconds: cooldown }) : submitLabel}
-            </button>
-
-            {/* Progress (while loading) */}
-            {loading && progress && (
-              <ProgressIndicator progress={progress} t={t} />
-            )}
-
-            {/* Error */}
-            {error && (
-              <div className="mt-4 p-4 rounded-lg bg-destructive/10 border border-destructive/20" role="alert">
-                <p className="text-sm text-destructive font-mono whitespace-pre-wrap break-words">{error}</p>
-              </div>
-            )}
-
-            {/* Results */}
-            {results && (
-              <div className="mt-6 animate-in">
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="w-1.5 h-1.5 rounded-full bg-success" />
-                  <span className="text-xs font-mono uppercase tracking-widest text-success">{t("results.success")}</span>
-                </div>
-                <ResultsDisplay results={results} t={t} />
-                <button onClick={handleStartOver}
-                  className="mt-6 w-full min-h-[44px] py-3 rounded-pill font-button font-semibold text-sm uppercase tracking-wide transition-all bg-muted border border-border text-foreground hover:border-accent">
-                  {t("results.startOver")}
-                </button>
-              </div>
-            )}
-          </>
-        )}
+          </aside>
+        </div>
       </div>
     </main>
   );
@@ -744,6 +651,330 @@ export default function Home() {
 /* --- Components --- */
 
 type TFunc = (key: TranslationKey, vars?: Record<string, string | number>) => string;
+
+function TopBar({
+  version, t, theme, themeAriaKey, locale, cycleTheme, cycleLocale, rightSlot,
+}: {
+  version: string;
+  t: TFunc;
+  theme: Theme;
+  themeAriaKey: TranslationKey;
+  locale: string;
+  cycleTheme: () => void;
+  cycleLocale: () => void;
+  rightSlot: React.ReactNode;
+}) {
+  return (
+    <header className="sticky top-0 z-30 border-b border-border bg-background/80 backdrop-blur-md">
+      <div className="max-w-6xl mx-auto h-14 px-4 sm:px-6 lg:px-8 flex items-center justify-between gap-4">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-2 h-2 rounded-full bg-accent shrink-0" />
+          <span className="text-xs font-mono uppercase tracking-widest text-muted-foreground truncate">
+            {t("header.appName")}
+          </span>
+          <span className="text-xs font-mono text-muted-foreground/60 hidden sm:inline">v{version}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          {rightSlot}
+          <div className="hidden sm:flex items-center gap-1.5 ml-1">
+            <LanguageSelector locale={locale} onCycle={cycleLocale} ariaLabel={t("language.switch")} />
+            <ThemeToggle theme={theme} onCycle={cycleTheme} ariaLabel={t(themeAriaKey)} />
+          </div>
+        </div>
+      </div>
+    </header>
+  );
+}
+
+function UserPill({
+  email, portalId, connected, portal, disconnect, onSignOut,
+}: {
+  email: string | null;
+  portalId: string | null;
+  connected: string;
+  portal: string;
+  disconnect: string;
+  onSignOut: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-full bg-card border border-border">
+      <div className="w-1.5 h-1.5 rounded-full bg-success shrink-0" />
+      <span className="text-xs font-mono text-muted-foreground hidden sm:inline truncate max-w-[200px]">
+        {email || connected}
+        {portalId ? ` · ${portal} ${portalId}` : ""}
+      </span>
+      <span className="text-xs font-mono text-muted-foreground sm:hidden">
+        {portalId ? portalId : connected}
+      </span>
+      <button onClick={onSignOut}
+        className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors cursor-pointer pl-1.5 border-l border-border"
+        aria-label={disconnect}>
+        {disconnect}
+      </button>
+    </div>
+  );
+}
+
+function DashboardPanel({
+  active, recent, expandedJobId, setExpandedJobId, liveProgressJobId, liveProgress, t,
+}: {
+  active: JobSummary[];
+  recent: JobSummary[];
+  expandedJobId: string | null;
+  setExpandedJobId: (id: string | null) => void;
+  liveProgressJobId: string | null;
+  liveProgress: Progress | null;
+  t: TFunc;
+}) {
+  if (active.length === 0 && recent.length === 0) {
+    return (
+      <div className="rounded-xl border border-dashed border-border p-10 text-center">
+        <div className="mx-auto w-10 h-10 rounded-full bg-muted flex items-center justify-center mb-4">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+            strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground" aria-hidden="true">
+            <rect x="3" y="3" width="18" height="18" rx="2" />
+            <path d="M3 9h18M9 21V9" />
+          </svg>
+        </div>
+        <p className="text-sm text-muted-foreground">{t("dashboard.empty")}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-8">
+      {active.length > 0 && (
+        <div>
+          <SectionLabel
+            label={t("dashboard.active")}
+            count={active.length}
+            indicator={<span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />}
+          />
+          <div className="space-y-2">
+            {active.map(j => (
+              <JobRow
+                key={j.id}
+                job={j}
+                expanded={expandedJobId === j.id || j.id === liveProgressJobId}
+                onToggle={() => setExpandedJobId(expandedJobId === j.id ? null : j.id)}
+                liveProgress={j.id === liveProgressJobId ? liveProgress : null}
+                t={t}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+      {recent.length > 0 && (
+        <div>
+          <SectionLabel label={t("dashboard.recent")} count={recent.length} />
+          <div className="space-y-2">
+            {recent.slice(0, 10).map(j => (
+              <JobRow
+                key={j.id}
+                job={j}
+                expanded={expandedJobId === j.id}
+                onToggle={() => setExpandedJobId(expandedJobId === j.id ? null : j.id)}
+                liveProgress={null}
+                t={t}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SectionLabel({ label, count, indicator }: { label: string; count?: number; indicator?: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-2 mb-3 px-1">
+      {indicator}
+      <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+        {label}{typeof count === "number" ? ` · ${count}` : ""}
+      </span>
+    </div>
+  );
+}
+
+function CreateForm(props: {
+  mode: Mode | null;
+  setMode: (m: Mode) => void;
+  isAdvanced: boolean;
+  partner: CompanyFields;
+  customer: CompanyFields;
+  partnerEnabled: boolean;
+  customerEnabled: boolean;
+  setPartnerEnabled: (b: boolean) => void;
+  setCustomerEnabled: (b: boolean) => void;
+  portalRole: string;
+  setPortalRole: (s: string) => void;
+  partnerRole: string;
+  setPartnerRole: (s: string) => void;
+  customerRole: string;
+  setCustomerRole: (s: string) => void;
+  updatePartner: (p: Partial<CompanyFields>) => void;
+  updatePartnerContact: (p: Partial<ContactFields>) => void;
+  updateCustomer: (c: Partial<CompanyFields>) => void;
+  updateCustomerContact: (p: Partial<ContactFields>) => void;
+  handleRandomize: (role: "partner" | "customer") => void;
+  onSubmit: () => void;
+  isValid: boolean;
+  loading: boolean;
+  cooldown: number;
+  submitLabel: string;
+  error: string | null;
+  t: TFunc;
+}) {
+  const {
+    mode, setMode, isAdvanced, partner, customer, partnerEnabled, customerEnabled,
+    setPartnerEnabled, setCustomerEnabled, portalRole, setPortalRole, partnerRole, setPartnerRole,
+    customerRole, setCustomerRole, updatePartner, updatePartnerContact, updateCustomer,
+    updateCustomerContact, handleRandomize, onSubmit, isValid, loading, cooldown, submitLabel, error, t,
+  } = props;
+
+  return (
+    <div className="rounded-xl border border-border bg-card overflow-hidden shadow-sm">
+      {/* Header strip */}
+      <div className="px-5 py-4 border-b border-border flex items-center justify-between gap-3">
+        <h2 className="text-sm font-semibold tracking-tight font-heading text-card-foreground">
+          {t("create.title")}
+        </h2>
+        {mode && (
+          <SegmentedControl
+            value={mode}
+            onChange={setMode}
+            disabled={loading}
+            options={[
+              { value: "simple" as Mode, label: t("mode.simple") },
+              { value: "advanced" as Mode, label: t("mode.advanced") },
+            ]}
+            compact
+          />
+        )}
+      </div>
+
+      <div className="p-5 space-y-5">
+        {/* Role (simple mode shows shared role here; advanced mode tucks role into each side) */}
+        {!isAdvanced && (
+          <div>
+            <label className="block text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1.5">
+              {t("role.label")}
+            </label>
+            <select value={portalRole} onChange={(e) => setPortalRole(e.target.value)}
+              className="w-full px-3 h-10 rounded-md text-sm bg-background border border-border text-foreground transition-colors hover:border-accent focus:border-accent focus:outline-none cursor-pointer">
+              <option value="Admin-RW">{t("role.admin")}</option>
+              <option value="User-RW">{t("role.rw")}</option>
+              <option value="User-RO">{t("role.ro")}</option>
+            </select>
+          </div>
+        )}
+
+        <SidePanel
+          title={t("partner.title")}
+          badge={t("partner.badge")}
+          showCheckbox={isAdvanced}
+          checked={partnerEnabled}
+          onCheckedChange={setPartnerEnabled}
+          enableLabel={`${t("entity.enable")} ${t("partner.title")}`}
+          actionSlot={
+            (!isAdvanced || partnerEnabled) ? (
+              <button onClick={() => handleRandomize("partner")} type="button"
+                className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded-md bg-muted/50 border border-border text-muted-foreground hover:text-foreground hover:border-accent transition-colors cursor-pointer">
+                {t("entity.randomize")}
+              </button>
+            ) : null
+          }
+          roleSlot={isAdvanced ? <RoleSelect value={partnerRole} onChange={setPartnerRole} disabled={!partnerEnabled} t={t} /> : null}
+          disabled={isAdvanced && !partnerEnabled}
+        >
+          <EntityFields company={partner} onCompanyChange={updatePartner} onContactChange={updatePartnerContact}
+            disabled={isAdvanced && !partnerEnabled} t={t} namePlaceholder="Acme Corp" domainPlaceholder="acme.com" />
+        </SidePanel>
+
+        <SidePanel
+          title={t("customer.title")}
+          badge={t("customer.badge")}
+          showCheckbox={isAdvanced}
+          checked={customerEnabled}
+          onCheckedChange={setCustomerEnabled}
+          enableLabel={`${t("entity.enable")} ${t("customer.title")}`}
+          actionSlot={
+            (!isAdvanced || customerEnabled) ? (
+              <button onClick={() => handleRandomize("customer")} type="button"
+                className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded-md bg-muted/50 border border-border text-muted-foreground hover:text-foreground hover:border-accent transition-colors cursor-pointer">
+                {t("entity.randomize")}
+              </button>
+            ) : null
+          }
+          roleSlot={isAdvanced ? <RoleSelect value={customerRole} onChange={setCustomerRole} disabled={!customerEnabled} t={t} /> : null}
+          disabled={isAdvanced && !customerEnabled}
+        >
+          <EntityFields company={customer} onCompanyChange={updateCustomer} onContactChange={updateCustomerContact}
+            disabled={isAdvanced && !customerEnabled} t={t} namePlaceholder="Widget Inc" domainPlaceholder="widget.io" />
+        </SidePanel>
+
+        {isAdvanced && (
+          <div className="flex items-center gap-2 px-1">
+            <div className={`w-1.5 h-1.5 rounded-full ${partnerEnabled && customerEnabled ? "bg-success" : "bg-muted-foreground"}`} />
+            <span className={`text-[10px] font-mono uppercase tracking-wider ${partnerEnabled && customerEnabled ? "text-success" : "text-muted-foreground"}`}>
+              {partnerEnabled && customerEnabled ? t("association.willCreate") : t("association.singleEntity")}
+            </span>
+          </div>
+        )}
+
+        <button onClick={onSubmit} disabled={!isValid || loading || cooldown > 0}
+          className="w-full min-h-[44px] py-2.5 rounded-md font-button font-semibold text-sm uppercase tracking-wide transition-colors bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer">
+          {loading ? t("submit.creating") : cooldown > 0 ? t("submit.retryIn", { seconds: cooldown }) : submitLabel}
+        </button>
+
+        {error && (
+          <div className="p-3 rounded-md bg-destructive/10 border border-destructive/20" role="alert">
+            <p className="text-xs text-destructive font-mono whitespace-pre-wrap break-words leading-relaxed">{error}</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SidePanel({
+  title, badge, showCheckbox, checked, onCheckedChange, enableLabel,
+  actionSlot, roleSlot, disabled, children,
+}: {
+  title: string;
+  badge?: string;
+  showCheckbox?: boolean;
+  checked?: boolean;
+  onCheckedChange?: (c: boolean) => void;
+  enableLabel?: string;
+  actionSlot?: React.ReactNode;
+  roleSlot?: React.ReactNode;
+  disabled?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className={`rounded-lg border ${disabled ? "border-dashed border-border opacity-60" : "border-border"} bg-background/40 transition-colors`}
+      aria-disabled={disabled || undefined}>
+      <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-border">
+        <div className="flex items-center gap-2 min-w-0">
+          {showCheckbox ? (
+            <input type="checkbox" checked={checked} onChange={(e) => onCheckedChange?.(e.target.checked)}
+              className="w-3.5 h-3.5 rounded accent-primary cursor-pointer" aria-label={enableLabel || `Enable ${title}`} />
+          ) : (
+            <div className="w-1.5 h-1.5 rounded-full bg-accent" />
+          )}
+          <span className="text-xs font-semibold tracking-tight font-heading text-card-foreground truncate">{title}</span>
+          {badge && <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-muted text-muted-foreground border border-border hidden sm:inline">{badge}</span>}
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {roleSlot}
+          {actionSlot}
+        </div>
+      </div>
+      <div className={`p-4 ${disabled ? "pointer-events-none" : ""}`}>{children}</div>
+    </div>
+  );
+}
 
 function ProgressIndicator({ progress, t }: { progress: Progress; t: TFunc }) {
   const isWaiting = progress.stage === "waitingPartnerProvisioning" || progress.stage === "waitingCustomerProvisioning";
@@ -891,61 +1122,104 @@ function relativeAge(iso: string): string {
   return `${d}d ago`;
 }
 
-function JobRow({ job, expanded, onToggle, t }: {
+function StatusPill({ status }: { status: JobSummary["status"] }) {
+  const styles: Record<JobSummary["status"], string> = {
+    pending: "bg-muted text-muted-foreground border-border",
+    running: "bg-primary/15 text-primary border-primary/30",
+    succeeded: "bg-success/15 text-success border-success/30",
+    failed: "bg-destructive/10 text-destructive border-destructive/30",
+  };
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-[10px] font-mono uppercase tracking-wider shrink-0 ${styles[status]}`}>
+      {status === "running" && <span className="w-1 h-1 rounded-full bg-current animate-pulse" />}
+      {status}
+    </span>
+  );
+}
+
+function JobRow({ job, expanded, onToggle, liveProgress, t }: {
   job: JobSummary;
   expanded: boolean;
   onToggle: () => void;
+  liveProgress: Progress | null;
   t: TFunc;
 }) {
   const summary = job.created.length > 0
-    ? job.created.map(c => c.type).join(", ")
+    ? job.created.map(c => c.name).slice(0, 2).join(" · ") + (job.created.length > 2 ? ` +${job.created.length - 2}` : "")
     : job.status === "failed"
-      ? (job.error?.slice(0, 80) ?? "—")
-      : "—";
+      ? (job.error?.split("\n")[0]?.slice(0, 80) ?? "—")
+      : job.status === "running"
+        ? t(("poll.stage." + ({
+            partner: "creatingPartnerCompany",
+            customer: "creatingCustomerCompany",
+            associate: "associating",
+          }[job.phase ?? ""] ?? "creatingPartnerCompany")) as TranslationKey)
+        : t("dashboard.queued");
+  const isActive = job.status === "running" || job.status === "pending";
   return (
-    <div className="rounded-lg bg-card border border-border overflow-hidden">
+    <div className={`rounded-lg border overflow-hidden transition-colors ${
+      isActive ? "border-primary/30 bg-card" : "border-border bg-card hover:border-accent"
+    }`}>
       <button
         onClick={onToggle}
-        className="w-full flex items-center justify-between p-3 hover:bg-muted/30 transition-colors text-left"
+        className="w-full flex items-center justify-between gap-3 px-3.5 py-3 text-left cursor-pointer hover:bg-muted/30 transition-colors"
       >
-        <div className="flex items-center gap-3 min-w-0">
-          <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${statusDot(job.status)}`} />
-          <div className="min-w-0">
-            <div className="text-xs font-mono uppercase tracking-wide text-muted-foreground">
-              {job.status}{job.phase ? ` · ${job.phase}` : ""}
-            </div>
-            <div className="text-sm truncate">{summary}</div>
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          <StatusPill status={job.status} />
+          <div className="min-w-0 flex-1">
+            <div className="text-sm text-foreground truncate">{summary}</div>
+            {job.phase && isActive && (
+              <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mt-0.5">
+                {t(("poll.stage." + ({
+                  partner: "creatingPartnerCompany",
+                  customer: "creatingCustomerCompany",
+                  associate: "associating",
+                }[job.phase] ?? "associating")) as TranslationKey)}
+              </div>
+            )}
           </div>
         </div>
-        <span className="text-xs font-mono text-muted-foreground shrink-0 ml-3">
-          {relativeAge(job.created_at)}
-        </span>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="text-[11px] font-mono text-muted-foreground">{relativeAge(job.created_at)}</span>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+            strokeLinecap="round" strokeLinejoin="round"
+            className={`text-muted-foreground transition-transform ${expanded ? "rotate-180" : ""}`}
+            aria-hidden="true"
+          >
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+        </div>
       </button>
       {expanded && (
-        <div className="px-3 pb-3 border-t border-border bg-muted/20">
+        <div className="px-3.5 pb-3.5 border-t border-border bg-muted/20 space-y-3">
+          {liveProgress && (
+            <div className="pt-3">
+              <ProgressIndicator progress={liveProgress} t={t} />
+            </div>
+          )}
           {job.created.length > 0 && (
-            <div className="mt-3 space-y-2">
+            <div className="pt-3 space-y-2">
               {job.created.map((e, i) => <ResultRow key={i} entity={e} />)}
             </div>
           )}
           {job.error && (
-            <div className="mt-3 p-3 rounded-lg bg-destructive/10 border border-destructive/20">
-              <p className="text-xs text-destructive font-mono whitespace-pre-wrap break-words">
+            <div className="p-3 rounded-md bg-destructive/10 border border-destructive/20">
+              <p className="text-xs text-destructive font-mono whitespace-pre-wrap break-words leading-relaxed">
                 {job.error}
-                {job.raw_status ? `\n\nHubSpot reported: ${job.raw_status}` : ""}
+                {job.raw_status ? `\n\nHubSpot: ${job.raw_status}` : ""}
               </p>
             </div>
           )}
           {job.kept && job.kept.length > 0 && (
-            <div className="mt-3">
+            <div>
               <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-2 block">
                 {t("dashboard.kept")}
               </span>
               <div className="space-y-1">
                 {job.kept.map((k, i) => (
                   <a key={i} href={k.url} target="_blank" rel="noopener noreferrer"
-                    className="block text-xs font-mono text-muted-foreground hover:text-accent transition-colors truncate">
-                    · {String(k.type).replace(/_/g, " ")} → {k.url}
+                    className="block text-xs font-mono text-muted-foreground hover:text-accent transition-colors truncate cursor-pointer">
+                    {String(k.type).replace(/_/g, " ")} → {k.url}
                   </a>
                 ))}
               </div>
@@ -962,30 +1236,32 @@ function EntityFields({ company, onCompanyChange, onContactChange, disabled, t, 
   disabled?: boolean; t: TFunc; namePlaceholder: string; domainPlaceholder: string;
 }) {
   return (
-    <>
-      <div className="grid grid-cols-2 gap-3">
+    <div className="space-y-2.5">
+      <div className="grid grid-cols-2 gap-2.5">
         <Input label={t("form.companyName")} value={company.name} onChange={(v) => onCompanyChange({ name: v })} placeholder={namePlaceholder} disabled={disabled} />
         <Input label={t("form.domain")} value={company.domain} onChange={(v) => onCompanyChange({ domain: v })} placeholder={domainPlaceholder} disabled={disabled} />
       </div>
-      <div className="grid grid-cols-3 gap-3 mt-3">
+      <div className="grid grid-cols-2 gap-2.5">
         <Input label={t("form.firstName")} value={company.contact.firstname} onChange={(v) => onContactChange({ firstname: v })} disabled={disabled} />
         <Input label={t("form.lastName")} value={company.contact.lastname} onChange={(v) => onContactChange({ lastname: v })} disabled={disabled} />
-        <Input label={t("form.email")} value={company.contact.email} onChange={(v) => onContactChange({ email: v })} type="email" mono disabled={disabled} />
       </div>
-    </>
+      <Input label={t("form.email")} value={company.contact.email} onChange={(v) => onContactChange({ email: v })} type="email" mono disabled={disabled} />
+    </div>
   );
 }
 
-function SegmentedControl<T extends string>({ value, onChange, options, disabled }: {
-  value: T; onChange: (v: T) => void; options: { value: T; label: string }[]; disabled?: boolean;
+function SegmentedControl<T extends string>({ value, onChange, options, disabled, compact }: {
+  value: T; onChange: (v: T) => void; options: { value: T; label: string }[]; disabled?: boolean; compact?: boolean;
 }) {
+  const buttonH = compact ? "h-7" : "min-h-[44px]";
+  const wrapW = compact ? "" : "w-full";
   return (
-    <div className={`flex w-full rounded-pill bg-muted p-1 ${disabled ? "opacity-50 pointer-events-none" : ""}`} role="radiogroup" aria-label="Mode selection">
+    <div className={`flex ${wrapW} rounded-md bg-muted p-0.5 ${disabled ? "opacity-50 pointer-events-none" : ""}`} role="radiogroup" aria-label="Mode selection">
       {options.map((opt) => (
         <button key={opt.value} role="radio" aria-checked={value === opt.value} onClick={() => onChange(opt.value)} disabled={disabled}
-          className={`flex-1 min-h-[44px] rounded-pill font-button text-xs uppercase tracking-wide transition-all ${
-            value === opt.value ? "bg-card border border-border shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
-          }`}>
+          className={`${buttonH} px-3 rounded font-button text-[10px] uppercase tracking-wider transition-colors cursor-pointer ${
+            value === opt.value ? "bg-card border border-border text-foreground" : "text-muted-foreground hover:text-foreground"
+          } ${compact ? "" : "flex-1"}`}>
           {opt.label}
         </button>
       ))}
@@ -996,7 +1272,7 @@ function SegmentedControl<T extends string>({ value, onChange, options, disabled
 function RoleSelect({ value, onChange, disabled, t }: { value: string; onChange: (v: string) => void; disabled?: boolean; t: TFunc }) {
   return (
     <select value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled}
-      className="h-[44px] px-3 text-xs font-mono rounded-md bg-muted border border-border text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+      className="h-7 px-2 text-[10px] font-mono uppercase tracking-wider rounded-md bg-muted border border-border text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer hover:border-accent focus:border-accent focus:outline-none">
       <option value="Admin-RW">{t("role.admin")}</option>
       <option value="User-RW">{t("role.rw")}</option>
       <option value="User-RO">{t("role.ro")}</option>
@@ -1007,12 +1283,8 @@ function RoleSelect({ value, onChange, disabled, t }: { value: string; onChange:
 function LanguageSelector({ locale, onCycle, ariaLabel }: { locale: string; onCycle: () => void; ariaLabel: string }) {
   return (
     <button onClick={onCycle} aria-label={ariaLabel} title={ariaLabel}
-      className="min-h-[44px] min-w-[44px] flex items-center justify-center gap-1 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:border-accent transition-colors">
-      <span className="text-xs font-mono font-semibold uppercase">{locale}</span>
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <polyline points="17 1 21 5 17 9" /><path d="M3 11V9a4 4 0 0 1 4-4h14" />
-        <polyline points="7 23 3 19 7 15" /><path d="M21 13v2a4 4 0 0 1-4 4H3" />
-      </svg>
+      className="h-8 px-2 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer">
+      <span className="text-[11px] font-mono font-semibold uppercase tracking-wider">{locale}</span>
     </button>
   );
 }
@@ -1020,40 +1292,15 @@ function LanguageSelector({ locale, onCycle, ariaLabel }: { locale: string; onCy
 function ThemeToggle({ theme, onCycle, ariaLabel }: { theme: Theme; onCycle: () => void; ariaLabel: string }) {
   return (
     <button onClick={onCycle} aria-label={ariaLabel} title={ariaLabel}
-      className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg border border-border text-muted-foreground hover:text-foreground hover:border-accent transition-colors">
+      className="h-8 w-8 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer">
       {theme === "dark" ? (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" /></svg>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" /></svg>
       ) : theme === "light" ? (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5" /><line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" /><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" /><line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" /><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" /></svg>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="5" /><line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" /><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" /><line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" /><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" /></svg>
       ) : (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" /></svg>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2" ry="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" /></svg>
       )}
     </button>
-  );
-}
-
-function Section({ title, badge, action, children, showCheckbox, checked, onCheckedChange, disabled, enableLabel }: {
-  title: string; badge?: string; action?: React.ReactNode; children: React.ReactNode;
-  showCheckbox?: boolean; checked?: boolean; onCheckedChange?: (c: boolean) => void; disabled?: boolean; enableLabel?: string;
-}) {
-  return (
-    <div className={`mb-6 p-5 rounded-lg shadow-sm bg-card transition-all duration-200 ${disabled ? "opacity-50 border border-dashed border-border" : "border border-border"}`}
-      aria-disabled={disabled || undefined}>
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-3">
-          {showCheckbox ? (
-            <input type="checkbox" checked={checked} onChange={(e) => onCheckedChange?.(e.target.checked)}
-              className="w-4 h-4 rounded accent-primary cursor-pointer" aria-label={enableLabel || `Enable ${title}`} />
-          ) : (
-            <div className="w-2 h-2 rounded-full bg-accent" />
-          )}
-          <h2 className="text-sm font-semibold tracking-tight font-heading text-card-foreground">{title}</h2>
-          {badge && <span className="text-[10px] font-mono px-2 py-0.5 rounded-pill bg-muted text-muted-foreground border border-border">{badge}</span>}
-        </div>
-        {action}
-      </div>
-      <div className={disabled ? "pointer-events-none" : ""}>{children}</div>
-    </div>
   );
 }
 
@@ -1062,10 +1309,10 @@ function Input({ label, value, onChange, type = "text", placeholder, mono, disab
 }) {
   return (
     <div>
-      <label className="block text-sm font-medium text-muted-foreground mb-1.5 truncate">{label}</label>
+      <label className="block text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1">{label}</label>
       <input type={type} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
         disabled={disabled} tabIndex={disabled ? -1 : undefined}
-        className={`w-full px-3 h-[50px] rounded-sm text-base bg-card border border-border text-foreground placeholder:text-muted-foreground/40 transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${mono ? "font-mono text-xs" : ""}`} />
+        className={`w-full px-3 h-9 rounded-md text-sm bg-background border border-border text-foreground placeholder:text-muted-foreground/40 transition-colors hover:border-accent focus:border-accent focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed ${mono ? "font-mono text-xs" : ""}`} />
     </div>
   );
 }

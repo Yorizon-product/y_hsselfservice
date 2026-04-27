@@ -78,9 +78,12 @@
   "theme.light": "Design: Hell. Klicken zum Wechseln.",
   "theme.dark": "Design: Dunkel. Klicken zum Wechseln.",
 
-  "dashboard.active": "Laufende Jobs",
-  "dashboard.recent": "Zuletzt erledigt",
+  "dashboard.active": "Aktiv",
+  "dashboard.recent": "Zuletzt",
   "dashboard.kept": "In HubSpot belassene Datensätze",
+  "dashboard.empty": "Noch keine Jobs — erstelle einen rechts.",
+  "dashboard.queued": "In der Warteschlange",
+  "create.title": "Neue Entitäten",
 
   "language.switch": "Sprache: Deutsch. Klicken zum Wechseln.",
 

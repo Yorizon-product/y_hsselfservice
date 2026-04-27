@@ -78,9 +78,12 @@
   "theme.light": "Theme: light. Click to cycle.",
   "theme.dark": "Theme: dark. Click to cycle.",
 
-  "dashboard.active": "Active jobs",
-  "dashboard.recent": "Recent jobs",
+  "dashboard.active": "Active",
+  "dashboard.recent": "Recent",
   "dashboard.kept": "Records kept in HubSpot",
+  "dashboard.empty": "No jobs yet — create one on the right.",
+  "dashboard.queued": "Queued for processing",
+  "create.title": "New entities",
 
   "language.switch": "Language: English. Click to switch.",
 
