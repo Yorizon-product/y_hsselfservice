@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
-import { getDb, type JobRow } from "@/lib/db";
+import { getDb, sqliteToIsoZ, type JobRow } from "@/lib/db";
 
 // Poll endpoint. Client hits this every 2s until status is terminal
 // (succeeded/failed). Response is the minimum shape the client needs to
@@ -32,14 +32,14 @@ export async function GET(
     id: row.id,
     status: row.status,
     phase: row.phase,
-    phase_started_at: row.updated_at, // phase transitions update updated_at
+    phase_started_at: sqliteToIsoZ(row.updated_at), // phase transitions update updated_at
     created: JSON.parse(row.created_json),
     tracked_ids: JSON.parse(row.tracked_ids_json),
     error: row.error,
     code: row.code,
     raw_status: row.raw_status,
     kept: row.kept_json ? JSON.parse(row.kept_json) : null,
-    created_at: row.created_at,
-    updated_at: row.updated_at,
+    created_at: sqliteToIsoZ(row.created_at),
+    updated_at: sqliteToIsoZ(row.updated_at),
   });
 }

@@ -167,6 +167,20 @@ export function claimIdempotencyKey(key: string, ttlSeconds = 30): boolean {
   }
 }
 
+// SQLite's `datetime('now')` writes UTC in the form 'YYYY-MM-DD HH:MM:SS'
+// — no T separator, no Z marker. JS Date treats that as LOCAL time on
+// Chrome, which makes the client's relativeAge() drift by the user's
+// timezone offset (e.g. -2h on CEST). Normalize to unambiguous ISO Z
+// before sending anything timestamp-shaped over the wire.
+export function sqliteToIsoZ(s: string | null | undefined): string | null {
+  if (!s) return null;
+  if (s.includes("T") && s.endsWith("Z")) return s;
+  // Already-iso (T present) but missing Z: still UTC by SQLite convention.
+  if (s.includes("T")) return s + "Z";
+  // 'YYYY-MM-DD HH:MM:SS' — swap space for T and append Z.
+  return s.replace(" ", "T") + "Z";
+}
+
 // ─── webhook_events helpers ────────────────────────────────────────────
 
 export type WebhookEventRow = {
