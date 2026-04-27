@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
+import { publicOrigin, publicUrl } from "@/lib/public-url";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const code = searchParams.get("code");
   const state = searchParams.get("state");
-  const baseUrl = new URL("/", req.url).toString();
+  const baseUrl = publicUrl(req, "/");
 
   if (!code) {
     return NextResponse.redirect(`${baseUrl}?error=missing_code`);
@@ -25,7 +26,7 @@ export async function GET(req: NextRequest) {
       grant_type: "authorization_code",
       client_id: process.env.HUBSPOT_CLIENT_ID!,
       client_secret: process.env.HUBSPOT_CLIENT_SECRET!,
-      redirect_uri: process.env.HUBSPOT_REDIRECT_URI || `${new URL("/api/auth/callback", req.url).toString()}`,
+      redirect_uri: process.env.HUBSPOT_REDIRECT_URI || `${publicOrigin(req)}/api/auth/callback`,
       code,
     }),
   });

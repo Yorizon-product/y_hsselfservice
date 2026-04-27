@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
+import { publicOrigin } from "@/lib/public-url";
 import crypto from "crypto";
 
 const SCOPES = [
@@ -17,9 +18,10 @@ export async function GET(req: NextRequest) {
   session.oauthState = state;
   await session.save();
 
-  // Build redirect URI from request host so preview deployments work
-  const url = new URL(req.url);
-  const redirectUri = process.env.HUBSPOT_REDIRECT_URI || `${url.origin}/api/auth/callback`;
+  // Behind a reverse proxy req.url shows the internal bind host (0.0.0.0);
+  // use the X-Forwarded-* headers so the redirect_uri matches what HubSpot
+  // expects.
+  const redirectUri = process.env.HUBSPOT_REDIRECT_URI || `${publicOrigin(req)}/api/auth/callback`;
 
   const params = new URLSearchParams({
     client_id: process.env.HUBSPOT_CLIENT_ID!,
