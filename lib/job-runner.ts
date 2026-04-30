@@ -41,6 +41,14 @@ const PORTAL_STATUS_POLL_KEEP_ON_FAIL = process.env.PORTAL_STATUS_POLL_KEEP_ON_F
 // when explicitly disabled — useful for debugging or as a kill-switch
 // if HubSpot's webhooks misbehave.
 const PORTAL_STATUS_VIA_WEBHOOK = process.env.PORTAL_STATUS_VIA_WEBHOOK !== "0";
+// 2026-04-30 EXPERIMENT: when set, include `domain` on the initial
+// HubSpot Company POST instead of patching it post-poll. Goal is to
+// collapse the two-webhook (create + patch) sequence into one so the
+// downstream PRM-sync dedup (Customer.website ↔ Company.domain) works.
+// Default OFF — flip to "1" in /srv/hsselfservice/.env to test against
+// integration 27850292's automation. If portal-status poll fails with
+// the flag on, the constraint is still real and we revert.
+const INCLUDE_DOMAIN_ON_CREATE = process.env.INCLUDE_DOMAIN_ON_CREATE === "1";
 const VALID_ROLES = new Set(["Admin-RW", "User-RW", "User-RO"]);
 const DEFAULT_ROLE = "User-RO";
 
@@ -235,7 +243,14 @@ async function executeJob(job: JobRow): Promise<void> {
     setPhase(job.id, side);
     console.log(`[worker] job=${job.id} side=${side} creating company "${input.name}"`);
 
-    const company = await createCompany(headers, input.name, sideUpper, payload.hubspotOwnerId);
+    const company = await createCompany(
+      headers,
+      input.name,
+      sideUpper,
+      payload.hubspotOwnerId,
+      undefined,
+      INCLUDE_DOMAIN_ON_CREATE ? input.domain : undefined
+    );
     createdIds.push({ type: "companies", id: company.id, label: `${side}_company` });
     appendCreated(
       job.id,
@@ -274,11 +289,15 @@ async function executeJob(job: JobRow): Promise<void> {
     }
 
     // Domain is guaranteed non-empty by /api/jobs/create + executeJob's
-    // pre-flight; trim once so downstream consumers see a normalised value.
-    try {
-      await patchCompanyDomain(headers, company.id, input.domain.trim());
-    } catch (e: any) {
-      console.error(`[worker] job=${job.id} ${side} domain patch failed: ${e.message}`);
+    // pre-flight. When INCLUDE_DOMAIN_ON_CREATE is on, the POST already
+    // carried the domain — skip the patch (it would be a no-op + extra
+    // webhook). When off, patch as before.
+    if (!INCLUDE_DOMAIN_ON_CREATE) {
+      try {
+        await patchCompanyDomain(headers, company.id, input.domain.trim());
+      } catch (e: any) {
+        console.error(`[worker] job=${job.id} ${side} domain patch failed: ${e.message}`);
+      }
     }
 
     const contact = await createContact(headers, input.contact, company.id, role);

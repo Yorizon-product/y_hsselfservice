@@ -85,19 +85,24 @@ async function hubspotFetch(
   return data;
 }
 
-// Yorizon's provisioning automation (integration 27850292) requires BOTH:
+// Yorizon's provisioning automation (integration 27850292) was originally
+// believed to require BOTH:
 //   1. `hubspot_owner_id` set to a real HubSpot user ID
 //   2. NO `domain` field at create time
-// The domain is attached separately after the poll confirms provisioning
-// succeeded — see patchCompanyDomain.
+// (1) is still required. (2) is being re-tested 2026-04-30 because keeping
+// domain off the create generates two HubSpot webhooks (create + later
+// patch) and breaks downstream PRM-sync dedup. When `domain` is passed,
+// it's included on the POST; when omitted, behaviour is unchanged.
 export async function createCompany(
   headers: Record<string, string>,
   name: string,
   type: "PARTNER" | "CUSTOMER",
   ownerId: string,
-  fetchImpl: FetchImpl = fetch
+  fetchImpl: FetchImpl = fetch,
+  domain?: string
 ): Promise<{ id: string; createdAt: string; properties?: Record<string, string> }> {
   const properties: Record<string, string> = { name, type, hubspot_owner_id: ownerId };
+  if (domain && domain.trim()) properties.domain = domain.trim();
   return hubspotFetch(
     `${HUBSPOT_API}/crm/v3/objects/companies`,
     headers,
