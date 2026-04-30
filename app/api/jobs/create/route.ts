@@ -76,11 +76,15 @@ export async function POST(req: NextRequest) {
   if (portalRole && (partnerRole || customerRole)) {
     return bad(400, "Cannot provide both shared portalRole and per-entity roles. Use one or the other.");
   }
-  if (partner && (!partner.name || !partner.contact?.email)) {
-    return bad(400, "Partner company name and contact email are required");
+  // Domain is required: it's the only stable cross-system identity field
+  // for the y_prmcrm flows sync (Impartner Customer.website ↔ HubSpot
+  // Company.domain). Without a domain, every property-change webhook
+  // creates a fresh Impartner Customer (no dedup possible).
+  if (partner && (!partner.name || !partner.domain?.trim() || !partner.contact?.email)) {
+    return bad(400, "Partner company name, domain, and contact email are required");
   }
-  if (customer && (!customer.name || !customer.contact?.email)) {
-    return bad(400, "Customer company name and contact email are required");
+  if (customer && (!customer.name || !customer.domain?.trim() || !customer.contact?.email)) {
+    return bad(400, "Customer company name, domain, and contact email are required");
   }
   for (const r of [portalRole, partnerRole, customerRole]) {
     if (r && !VALID_ROLES.has(r)) {

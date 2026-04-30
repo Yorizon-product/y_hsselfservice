@@ -496,11 +496,15 @@ export default function Home() {
   const updateCustomer = (patch: Partial<CompanyFields>) => setCustomer((c) => ({ ...c, ...patch }));
   const updateCustomerContact = (patch: Partial<ContactFields>) => setCustomer((c) => ({ ...c, contact: { ...c.contact, ...patch } }));
 
+  // Domain is required for both sides: see /api/jobs/create — without a
+  // domain the downstream PRM sync can't dedup, and every webhook creates
+  // a fresh Impartner Customer/Account.
   const isValid = isAdvanced
-    ? (partnerEnabled ? partner.name && partner.contact.email : true) &&
-      (customerEnabled ? customer.name && customer.contact.email : true) &&
+    ? (partnerEnabled ? partner.name && partner.domain.trim() && partner.contact.email : true) &&
+      (customerEnabled ? customer.name && customer.domain.trim() && customer.contact.email : true) &&
       (partnerEnabled || customerEnabled)
-    : partner.name && partner.contact.email && customer.name && customer.contact.email;
+    : partner.name && partner.domain.trim() && partner.contact.email &&
+      customer.name && customer.domain.trim() && customer.contact.email;
 
   const submitLabel = isAdvanced
     ? partnerEnabled && customerEnabled ? t("submit.createPartnerCustomer")

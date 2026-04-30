@@ -196,6 +196,19 @@ function finalizeFailure(
 
 async function executeJob(job: JobRow): Promise<void> {
   const payload = JSON.parse(job.payload_json) as JobPayload;
+
+  // Defense in depth: /api/jobs/create rejects empty domains, but if a
+  // pre-existing pending job slips through without one we fail fast
+  // before creating anything in HubSpot. flows-side dedup depends on
+  // Customer.website / Account.website being populated, and the only
+  // way that gets set in HubSpot is via the post-create domain PATCH.
+  if (payload.partner && !payload.partner.domain?.trim()) {
+    throw new Error("Partner domain is required (job missing domain — won't dedup downstream)");
+  }
+  if (payload.customer && !payload.customer.domain?.trim()) {
+    throw new Error("Customer domain is required (job missing domain — won't dedup downstream)");
+  }
+
   const headers = {
     Authorization: `Bearer ${payload.accessToken}`,
     "Content-Type": "application/json",
@@ -260,12 +273,12 @@ async function executeJob(job: JobRow): Promise<void> {
       }
     }
 
-    if (input.domain) {
-      try {
-        await patchCompanyDomain(headers, company.id, input.domain);
-      } catch (e: any) {
-        console.error(`[worker] job=${job.id} ${side} domain patch failed: ${e.message}`);
-      }
+    // Domain is guaranteed non-empty by /api/jobs/create + executeJob's
+    // pre-flight; trim once so downstream consumers see a normalised value.
+    try {
+      await patchCompanyDomain(headers, company.id, input.domain.trim());
+    } catch (e: any) {
+      console.error(`[worker] job=${job.id} ${side} domain patch failed: ${e.message}`);
     }
 
     const contact = await createContact(headers, input.contact, company.id, role);
